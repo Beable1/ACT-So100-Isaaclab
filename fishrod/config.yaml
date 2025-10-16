@@ -1,0 +1,103 @@
+# Minimal Isaac Sim 4.5 Fishing Rod Configuration
+# ==============================================
+# Since fishrod is loaded from USD file, most config is redundant
+
+# Fishrod USD Loading Settings (ONLY THING NEEDED FOR FISHROD)
+fishrod:
+  scale: 0.15  # Scale factor for the entire fishrod (0.15 = 15% of original size)
+  base_position: [0.1, 0.1, 0.0]  # Baseline position of fishrod base [x, y, z]
+  base_orientation: [0.0, 0.0, 0.0]  # Baseline orientation [roll, pitch, yaw] in degrees
+  
+  # Randomization Settings
+  randomization:
+    enabled: true  # Enable/disable position and orientation randomization
+    
+    # Position offset ranges (added to base_position)
+    position_offset_range:
+      x: [-0.2, 0.2]  # X position offset range in meters
+      y: [-0.2, 0.2]  # Y position offset range in meters
+      z: [-0.05, 0.05]    # Z position offset range in meters (keep above ground)
+    
+    # Orientation offset ranges (added to base_orientation, in degrees)
+    orientation_offset_range:
+      roll: [-10.0, 10.0]   # Roll rotation offset range in degrees
+      pitch: [-10.0, 10.0]  # Pitch rotation offset range in degrees
+      yaw: [-180.0, 180.0]  # Yaw rotation offset range in degrees (full rotation)
+    
+    # Random seed settings
+    seed: null  # Set to null for random seed, or specify a number for reproducible randomization
+
+# Simulation Settings
+simulation:
+  max_steps: 10000
+  settling_steps: 60
+  time_delay: 0.04
+  render: true
+
+# Physics Scene Configuration (for environment)
+physics_scene:
+  path: "/World/physicsScene"
+  max_position_iterations: 16
+  max_velocity_iterations: 4
+  enable_stabilization: true
+  bounce_threshold: 5
+  ccd_enabled: true
+  ccd_threshold: 0.01
+  max_velocity: 100.0
+  max_angular_velocity: 100.0
+  substeps: 4
+  solver_type: "TGS"
+
+# Ground Plane Configuration (for environment)
+ground:
+  path: "/World/GroundPlane"
+  size: 10.0
+  material:
+    name: "ground_mat"
+    # Ground color: [Red, Green, Blue] values from 0.0 to 1.0
+    # Examples: [1.0, 1.0, 1.0] = white, [0.0, 0.0, 0.0] = black, [0.2, 0.2, 0.2] = dark gray
+    color: [0.0, 0.3, 0.9]  # Light gray/white - simple single color
+    roughness: 0.1          # Low roughness for flat appearance (0.0 = mirror, 1.0 = rough)
+    metallic: 0.0            # Non-metallic for simple look (0.0 = matte, 1.0 = metallic)
+
+# Gravity Configuration
+gravity:
+  direction: [0.0, 0.0, -1.0]
+  full_magnitude: 9.81
+  initial_magnitude: 0.0
+  break_check_threshold: 1.0
+
+# Break Detection Configuration
+break_detection:
+  distance_threshold: 0.01
+  enabled: false  # Disabled to prevent joint break events
+
+# Grasp Detection Configuration
+grasp_detection:
+  enabled: true
+  contact_threshold: 0.04  # Distance threshold for detecting contact between payload and gripper jaws
+  temp_joint_path: "/World/TempGraspConstraint"
+
+# Camera Configuration
+camera:
+  eye: [2.5, 2.5, 2.0]
+  target: [0.0, 0.0, 1.0]
+  fov: 60.0
+  focal_length: 50.0
+
+# Output Configuration
+output:
+  directory: "./output"
+  initial_state_path: "/tmp/fishing_rod_v2_initial.usd"
+  final_state_path: "/tmp/fishing_rod_v2_final.usd"
+  screenshot_interval: 10
+
+# Environment Configuration
+environment:
+  assets_path: "/Isaac/Environments/Grid/default_environment.usd"
+  reference_path: "/Environment"
+
+# PhysX Joint Configuration
+physx_joint:
+  projection_linear_tolerance: 0.001
+  projection_angular_tolerance_degrees: 0.5

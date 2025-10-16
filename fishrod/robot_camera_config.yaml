@@ -1,0 +1,208 @@
+# Robot and Camera Configuration for Isaac Sim Fishing Rod Simulation
+# =================================================================
+
+# Robot Configuration
+robot:
+  # Robot asset path (will be searched in order)
+  asset_paths:
+    - "./isaac_assets/so100.usd"
+    - "./lerobot_curobot_sim/isaac_assets/so100.usd"
+    - "/sim/isaac_assets/so100.usd"
+  
+  # Robot stage path in USD
+  stage_path: "/SOARM100"
+  
+  # Robot position in world coordinates [x, y, z]
+  position: [-0.43, 0.0, 0.0]
+  
+  # Robot orientation (quaternion [x, y, z, w] or euler angles in degrees)
+  orientation:
+    type: "quaternion"  # Options: "quaternion", "euler"
+    #euler_degrees: [0.0, 0.0, 0.0]  # [roll, pitch, yaw] in degrees
+    quaternion: [0.0, 0.0, 0.707, 0.707]  # [x, y, z, w] - uncomment if using quaternion
+  
+  # Robot joint configuration (calibrated values from robot.calibrated.ros2_control.xacro)
+  joints:
+    # Joint names for ROS2 bridge
+    names: ["Rotation", "Pitch", "Elbow", "Wrist_Pitch", "Wrist_Roll", "Jaw"]
+    
+    # Initial joint positions (radians) - calibrated values from robot.calibrated.ros2_control.xacro
+    initial_positions: [-0.010640, -1.555021, 1.559094, 0.005537, 0.050464, 0.184122]
+    
+    # Initial joint velocities (radians/second)
+    initial_velocities: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    
+    # Joint limits (radians) - calibrated limits from robot.calibrated.ros2_control.xacro
+    limits:
+      - [-1.980892, 2.151361]    # Rotation: calibrated limits
+      - [-0.194234, -2.915807]   # Pitch: calibrated limits (note: min > max indicates inverted range)
+      - [-0.251625, 3.095230]    # Elbow: calibrated limits
+      - [-1.791376, 1.733421]    # Wrist_Pitch: calibrated limits
+      - [3.110134, 2.993260]     # Wrist_Roll: calibrated limits (note: min > max indicates inverted range)
+      - [0.007093, 2.221870]     # Jaw: calibrated limits
+
+# Camera Configuration
+camera:
+  # Main simulation camera (for viewport)
+  main:
+    # Camera eye position [x, y, z] - where the camera is located
+    eye: [0.8, 0.8, 0.5]
+    
+    # Camera target position [x, y, z] - what the camera is looking at
+    target: [0.0, 0.0, 0.1]
+    
+    # Field of view in degrees
+    fov: 60.0
+    
+    # Focal length in mm (35mm equivalent)
+    focal_length: 50.0
+    
+    # Viewport controls (enables mouse/touch controls in Isaac Sim UI)
+    viewport_controls:
+      enable_orbit: true          # Enable mouse orbit controls (drag to rotate view)
+      enable_pan: true            # Enable mouse pan controls (middle-click drag to pan)
+      enable_zoom: true           # Enable mouse zoom controls (scroll wheel)
+      enable_fly: true            # Enable fly mode controls (WASD + mouse for FPS-style movement)
+      mouse_sensitivity: 1.0      # Mouse sensitivity multiplier
+      zoom_sensitivity: 1.0       # Zoom sensitivity multiplier
+      pan_sensitivity: 1.0        # Pan sensitivity multiplier
+      
+  # External camera for ROS2 publishing
+  external:
+    # Camera root path in USD
+    root_path: "/World/ExtCamera"
+    
+    # Camera position in world coordinates [x, y, z]
+    position: [-0.1, -1.0, 0.9]
+    
+    # Camera orientation (quaternion [x, y, z, w])
+    orientation: [0.89101,0.45399,0,0]
+    
+    # Camera child prim path
+    camera_path: "/World/ExtCamera/Camera"
+    
+    # Camera settings
+    settings:
+      fov: 50.0                # Field of view in degrees
+      focal_length: 70.0       # Focal length in mm (35mm equivalent)
+      near_clip: 0.1           # Near clipping plane
+      far_clip: 1000.0         # Far clipping plane
+      aspect_ratio: 16.0/9.0   # Aspect ratio (width/height)
+    
+    # ROS2 camera topics
+    ros2:
+      namespace: "ext_camera"
+      topics:
+        rgb: "rgb"             # RGB image topic
+        depth: "depth"         # Depth image topic
+        info: "info"           # Camera info topic
+      frame_id: "ext_camera"   # TF frame ID
+
+ 
+
+# Environment Configuration
+environment:
+  # Background environment USD path
+  background_path: "/Isaac/Environments/Simple_Room/simple_room.usd"
+  # background_path: "/Isaac/Environments/Grid/default_environment.usd"
+  
+  # Environment reference path in stage
+  reference_path: "/Environment"
+  
+  # Lighting configuration
+  lighting:
+    enable_sky: true
+    sky_intensity: 1.0
+    ambient_intensity: 0.3
+
+# ROS2 Configuration
+ros2:
+  # Bridge settings
+  bridge:
+    enable: true
+    domain_id: 0              # ROS_DOMAIN_ID (0-232)
+    use_domain_env_var: true  # Use ROS_DOMAIN_ID environment variable
+  
+  # TF publishing
+  tf:
+    enable: true
+    topic: "/tf"
+    target_prims:
+      - "/SOARM100"           # Robot
+      - "/Environment"        # Background environment
+      - "/World/ExtCamera"    # External camera
+  
+  # Joint state publishing
+  joint_states:
+    enable: true
+    topic: "/isaac_joint_states"
+    publish_rate: 30          # Hz
+  
+  # Joint command subscription
+  joint_commands:
+    enable: true
+    topic: "/isaac_joint_commands"
+    timeout: 0.1              # seconds
+
+# Action Graph Configuration
+action_graphs:
+  # TF Action Graph
+  tf:
+    path: "/World/TfActionGraph"
+    enable: true
+  
+  # Main Action Graph (joint control)
+  main:
+    path: "/World/MainActionGraph"
+    enable: true
+  
+  # ROS Camera Graph
+  camera:
+    path: "/World/ROS_Camera"
+    enable: true
+  
+  # External Camera Graph
+  external_camera:
+    path: "/World/ROS_Camera_External"
+    enable: true
+
+# Performance Configuration
+performance:
+  # Physics settings
+  physics:
+    dt: 1.0/60.0              # Physics timestep (seconds)
+    substeps: 1               # Physics substeps per frame
+    max_position_iterations: 16
+    max_velocity_iterations: 4
+  
+  # Rendering settings
+  rendering:
+    enable_vsync: false
+    anti_aliasing: 2          # MSAA level
+    enable_hdr: false
+  
+  # Memory settings
+  memory:
+    cache_size_mb: 1024
+    max_memory_mb: 8192
+
+# Debug Configuration
+debug:
+  # Enable debug output
+  enable: true
+  
+  # Log levels
+  log_level: "INFO"           # Options: "DEBUG", "INFO", "WARNING", "ERROR"
+  
+  # Debug features
+  features:
+    show_joint_axes: false
+    show_physics_debug: false
+    show_collision_shapes: false
+    show_joint_limits: false
+  
+  # Performance monitoring
+  performance:
+    enable_fps_counter: true
+    enable_memory_monitor: true
+    enable_physics_stats: false

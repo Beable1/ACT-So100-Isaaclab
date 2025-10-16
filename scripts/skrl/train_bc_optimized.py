@@ -1,6 +1,15 @@
 #!/usr/bin/env python3
 """
-train_bc_optimized.py  -- updated to use per-channel image normalization and val diagnostics
+train_bc_optimized.py  -- updated to use ResNet18 with ImageNet pretrained weights
+
+This script now uses ResNet18 as the vision backbone instead of a custom CNN.
+ResNet18 provides better feature extraction capabilities through transfer learning.
+
+Recommended parameters for ResNet18:
+- batch_size: 32-64 (smaller than custom CNN due to larger model)
+- lr: 1e-4 to 1e-3 (lower learning rate for pretrained model)
+- freeze_backbone: True for initial training, False for fine-tuning
+- image_size: 224 (ResNet18's preferred input size)
 
 Replace your existing script with this file (or copy the relevant functions).
 """
@@ -20,6 +29,7 @@ import pickle
 import random
 import cv2
 import time
+import torchvision.models as models
 
 # Try import av for decoding if available
 try:
@@ -98,7 +108,7 @@ def build_frame_cache(image_refs, image_size, cache_dir, target_video_width=640,
                     for i, frame in enumerate(container.decode(stream)):
                         if i in need:
                             try:
-                            img = frame.to_ndarray(format='rgb24')
+                                img = frame.to_ndarray(format='rgb24')
                             except Exception:
                                 continue
                             img = cv2.resize(img, (target_video_width, target_video_height), interpolation=cv2.INTER_LINEAR)
@@ -215,13 +225,19 @@ class AdvancedRobotDataset(Dataset):
         # resize to model image size
         img = cv2.resize(img_hwc_uint8, (self.image_size, self.image_size), interpolation=cv2.INTER_LINEAR)
         img = img.astype(np.float32) / 255.0
-        # per-channel normalize if mean/std provided
+        
+        # Use ImageNet normalization for ResNet18
+        imagenet_mean = np.array([0.485, 0.456, 0.406])
+        imagenet_std = np.array([0.229, 0.224, 0.225])
+        
+        # per-channel normalize if custom mean/std provided, otherwise use ImageNet
         if self.img_mean is not None and self.img_std is not None:
             # broadcast: img (H,W,3)
             img = (img - self.img_mean[None, None, :]) / (self.img_std[None, None, :] + 1e-8)
         else:
-            # fallback to centering at 0.5
-            img = (img - 0.5)
+            # Use ImageNet normalization
+            img = (img - imagenet_mean[None, None, :]) / (imagenet_std[None, None, :] + 1e-8)
+        
         img = np.transpose(img, (2, 0, 1))  # HWC -> CHW
         return torch.from_numpy(img).float()
 
@@ -302,7 +318,7 @@ class AdvancedRobotDataset(Dataset):
                 if self.disable_fallback:
                     img = torch.zeros((3, self.image_size, self.image_size), dtype=torch.float32)
                 else:
-                img = self._load_image_fallback(video_path, frame_idx)
+                    img = self._load_image_fallback(video_path, frame_idx)
             return obs, img, action
         return obs, action
 
@@ -316,7 +332,7 @@ class AdvancedBCNetwork(nn.Module):
         for h in hidden_dims:
             layers.append(nn.Linear(prev, h))
             layers.append(nn.ReLU())
-            layers.append(nn.BatchNorm1d(h))
+            layers.append(nn.LayerNorm(h))  # BatchNorm yerine LayerNorm kullan
             layers.append(nn.Dropout(dropout))
             prev = h
         layers.append(nn.Linear(prev, output_dim))
@@ -324,45 +340,57 @@ class AdvancedBCNetwork(nn.Module):
     def forward(self, x):
         return self.net(x)
 
-class LightVisionCNN(nn.Module):
-    def __init__(self, img_channels=3, state_dim=6, action_dim=6, width_mul: float = 1.0, dropout: float = 0.05, head_hidden: int = 128):
+class ResNet18VisionCNN(nn.Module):
+    def __init__(self, img_channels=3, state_dim=6, action_dim=6, dropout: float = 0.05, head_hidden: int = 128, freeze_backbone: bool = False):
         super().__init__()
-        c1 = max(8, int(16 * width_mul))
-        c2 = max(16, int(32 * width_mul))
-        c3 = max(32, int(64 * width_mul))
-        self.cnn = nn.Sequential(
-            nn.Conv2d(img_channels, c1, 5, stride=2, padding=2),
-            nn.ReLU(),
-            nn.BatchNorm2d(c1),
-            nn.Conv2d(c1, c2, 3, stride=2, padding=1),
-            nn.ReLU(),
-            nn.BatchNorm2d(c2),
-            nn.Conv2d(c2, c3, 3, stride=2, padding=1),
-            nn.ReLU(),
-            nn.BatchNorm2d(c3),
-            nn.AdaptiveAvgPool2d((1, 1)),
-        )
-        fusion_dim = c3 + state_dim
+        # Load pretrained ResNet18
+        self.backbone = models.resnet18(weights=models.ResNet18_Weights.IMAGENET1K_V1)
+        
+        # Modify first conv layer if needed for different input channels
+        if img_channels != 3:
+            self.backbone.conv1 = nn.Conv2d(img_channels, 64, kernel_size=7, stride=2, padding=3, bias=False)
+        
+        # Remove the final classification layer
+        self.backbone = nn.Sequential(*list(self.backbone.children())[:-1])
+        
+        # Freeze backbone if requested
+        if freeze_backbone:
+            for param in self.backbone.parameters():
+                param.requires_grad = False
+        
+        # ResNet18 feature dimension is 512
+        fusion_dim = 512 + state_dim
+        
         self.head = nn.Sequential(
             nn.Linear(fusion_dim, head_hidden),
             nn.ReLU(),
-            nn.BatchNorm1d(head_hidden),
+            nn.LayerNorm(head_hidden),  # BatchNorm yerine LayerNorm kullan
             nn.Dropout(dropout),
             nn.Linear(head_hidden, action_dim)
         )
+        
         # Auxiliary state-only head to stabilize training
         self.state_head = nn.Sequential(
             nn.Linear(state_dim, head_hidden),
             nn.ReLU(),
-            nn.BatchNorm1d(head_hidden),
+            nn.LayerNorm(head_hidden),  # BatchNorm yerine LayerNorm kullan
             nn.Dropout(dropout),
             nn.Linear(head_hidden, action_dim)
         )
+    
     def forward(self, state, image):
-        feat = self.cnn(image).flatten(1)
+        # Extract features from ResNet18
+        feat = self.backbone(image).flatten(1)  # (B, 512)
+        
+        # Concatenate with state features
         x = torch.cat([feat, state], dim=1)
+        
+        # Main prediction head
         fused = self.head(x)
+        
+        # Auxiliary state-only prediction
         state_only = self.state_head(state)
+        
         # Return both for weighted training; inference can use fused
         return fused, state_only
 
@@ -395,7 +423,7 @@ def train_model(model, train_loader, val_loader, num_epochs, device, lr=1e-3, am
     if lr_sched == 'cosine':
         scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=max(1, num_epochs - warmup_epochs))
     else:
-    scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.7, patience=5)
+        scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.7, patience=5)
     scaler = torch.amp.GradScaler('cuda', enabled=(amp and device.type == 'cuda'))
 
     best_val = float('inf')
@@ -454,17 +482,23 @@ def train_model(model, train_loader, val_loader, num_epochs, device, lr=1e-3, am
                     if dim_weights is None:
                         dim_weights = torch.ones(acts.shape[1], dtype=torch.float32, device=device)
                     loss = _weighted_loss(preds, acts, dim_weights, loss_type, huber_delta)
-            scaler.scale(loss / max(1, grad_accum_steps)).backward()
-            try:
-                scaler.unscale_(optimizer)
-            except Exception:
-                pass
-            torch.nn.utils.clip_grad_norm_(model.parameters(), clip_grad)
-            accum += 1
-            if accum % grad_accum_steps == 0:
-            scaler.step(optimizer)
-            scaler.update()
-                optimizer.zero_grad(set_to_none=True)
+            # Check if we have enough samples for BatchNorm (if any remain)
+            if obs.shape[0] > 1:  # Only process if batch size > 1
+                scaler.scale(loss / max(1, grad_accum_steps)).backward()
+                try:
+                    scaler.unscale_(optimizer)
+                except Exception:
+                    pass
+                torch.nn.utils.clip_grad_norm_(model.parameters(), clip_grad)
+                accum += 1
+                if accum % grad_accum_steps == 0:
+                    scaler.step(optimizer)
+                    scaler.update()
+                    optimizer.zero_grad(set_to_none=True)
+            else:
+                # Skip this batch if batch size is 1
+                print(f"Warning: Skipping batch with size 1 to avoid BatchNorm issues")
+                continue
 
             train_loss += loss.item()
             nb += 1
@@ -518,7 +552,7 @@ def train_model(model, train_loader, val_loader, num_epochs, device, lr=1e-3, am
             if epoch >= warmup_epochs:
                 scheduler.step()
         else:
-        scheduler.step(val_loss)
+            scheduler.step(val_loss)
 
         # diagnostics (per-dim scaled + orig if scaler)
         preds_arr = np.concatenate(all_preds, axis=0)
@@ -654,9 +688,10 @@ def main():
     parser.add_argument('--target_video_height', type=int, default=360)
     parser.add_argument('--cache_fill_strategy', type=str, default='nearest', choices=['nearest','strict','zero'])
     parser.add_argument('--mlp_hidden', type=str, default='256,256,128')
-    parser.add_argument('--cnn_width_mul', type=float, default=1.0)
+    parser.add_argument('--cnn_width_mul', type=float, default=1.0, help='deprecated: kept for compatibility')
     parser.add_argument('--dropout', type=float, default=0.05)
     parser.add_argument('--head_hidden', type=int, default=128, help='hidden width for fused/state heads')
+    parser.add_argument('--freeze_backbone', action='store_true', help='freeze ResNet18 backbone weights')
     # Weighted dual-head training (vision fused + state-only auxiliary)
     parser.add_argument('--state_loss_w', type=float, default=2.0, help='weight for auxiliary state-only head loss')
     parser.add_argument('--vision_loss_w', type=float, default=1.0, help='weight for fused vision+state head loss')
@@ -761,15 +796,15 @@ def main():
 
     train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True,
                               num_workers=num_workers, persistent_workers=(num_workers>0), pin_memory=(device.type=='cuda'),
-                              prefetch_factor=2 if num_workers>0 else None)
+                              prefetch_factor=2 if num_workers>0 else None, drop_last=True)
     test_loader = DataLoader(test_dataset, batch_size=args.batch_size, shuffle=False,
                              num_workers=num_workers, persistent_workers=(num_workers>0), pin_memory=(device.type=='cuda'),
-                             prefetch_factor=2 if num_workers>0 else None)
+                             prefetch_factor=2 if num_workers>0 else None, drop_last=True)
 
     print(f"Train samples: {len(train_dataset)}, Test samples: {len(test_dataset)}")
     if args.use_vision:
-        model = LightVisionCNN(img_channels=3, state_dim=X_train.shape[1], action_dim=y_train.shape[1], width_mul=args.cnn_width_mul, dropout=args.dropout, head_hidden=args.head_hidden).to(device)
-        print('Using LightVisionCNN')
+        model = ResNet18VisionCNN(img_channels=3, state_dim=X_train.shape[1], action_dim=y_train.shape[1], dropout=args.dropout, head_hidden=args.head_hidden, freeze_backbone=args.freeze_backbone).to(device)
+        print('Using ResNet18VisionCNN')
     else:
         if args.ensemble:
             hidden = [int(x) for x in args.mlp_hidden.split(',') if x.strip()]
@@ -826,6 +861,7 @@ def main():
                 mf.write(f'img_mean={",".join([str(x) for x in img_mean.tolist()])}\n')
                 mf.write(f'img_std={",".join([str(x) for x in img_std.tolist()])}\n')
             mf.write(f'cnn_width_mul={args.cnn_width_mul}\n')
+            mf.write(f'freeze_backbone={args.freeze_backbone}\n')
             mf.write(f'head_hidden={args.head_hidden}\n')
             mf.write(f'mlp_hidden={args.mlp_hidden}\n')
             mf.write(f'dropout={args.dropout}\n')

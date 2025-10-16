@@ -97,10 +97,10 @@ SO100_CFG = ArticulationCfg(
         # Gripper moves: Only moving jaw (~0.034kg)
         "gripper": ImplicitActuatorCfg(
             joint_names_expr=["Jaw"],
-            effort_limit=2.5,    # Increased from 1.9 to 2.5 for stronger grip
-            velocity_limit_sim=1.5,
-            stiffness=60.0,     # Increased from 25.0 to 60.0 for more reliable closing
-            damping=20.0,       # Increased from 10.0 to 20.0 for stability
+            effort_limit_sim=0.3,    # Reduced from 0.5 for gentler grip
+            velocity_limit_sim=1.0,  # Reduced from 1.5 for more controlled movement
+            stiffness=25.0,     # Reduced from 60.0 for softer closing
+            damping=8.0,        # Reduced from 20.0 for less resistance
         ),
     },
     # Using default soft limits

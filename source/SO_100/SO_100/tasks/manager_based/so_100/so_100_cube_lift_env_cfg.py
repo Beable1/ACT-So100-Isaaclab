@@ -39,7 +39,7 @@ class SO100CubeLiftEnvCfg(SO100LiftEnvCfg):
         self.actions.gripper_action = mdp.BinaryJointPositionActionCfg(
             asset_name="robot",
             joint_names=["Jaw"],
-            open_command_expr={"Jaw": 0.3},
+            open_command_expr={"Jaw": 1.0},
             close_command_expr={"Jaw": 0.0}
         )
         self.commands.object_pose.body_name = "Moving_Jaw"

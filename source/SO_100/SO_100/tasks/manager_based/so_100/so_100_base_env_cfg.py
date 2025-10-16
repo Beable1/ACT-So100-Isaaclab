@@ -65,7 +65,7 @@ class ObjectTableSceneCfg(InteractiveSceneCfg):
     )
     object = RigidObjectCfg(
         prim_path="/World/task_cube",
-        init_state=RigidObjectCfg.InitialStateCfg(pos=(0.25, 0.12, 0.1)),  # Increased z to 0.1
+        init_state=RigidObjectCfg.InitialStateCfg(pos=(0.25, 0.09, 0.1)),  # Increased z to 0.1
         spawn=sim_utils.CuboidCfg(
             size=(0.03, 0.03, 0.03),
             visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(1.0, 0.0, 0.0)),
@@ -149,7 +149,7 @@ class ActionsCfg:
     gripper_action = mdp.BinaryJointPositionActionCfg(
         asset_name="robot",
         joint_names=["Jaw"],
-        open_command_expr=0.3,
+        open_command_expr=1.0,
         close_command_expr=0.0
     )
 

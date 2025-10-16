@@ -1,0 +1,476 @@
+#usda 1.0
+(
+    customLayerData = {
+        dictionary physicsSettings = {
+            int "/persistent/simulation/minFrameRate" = 60
+        }
+    }
+    doc = """Generated from Composed Stage of root layer 
+"""
+    endTimeCode = 1000000
+    metersPerUnit = 1
+    startTimeCode = 0
+    timeCodesPerSecond = 60
+    upAxis = "Z"
+)
+
+def "FishRod"
+{
+    double3 xformOp:translate = (0, 0, 0)
+    uniform token[] xformOpOrder = ["xformOp:translate"]
+
+    def "Materials"
+    {
+        def Material "brown_mat"
+        {
+            token outputs:surface.connect = </FishRod/Materials/brown_mat/surface.outputs:surface>
+
+            def Shader "surface"
+            {
+                uniform token info:id = "UsdPreviewSurface"
+                color3f inputs:diffuseColor = (0.4, 0.2, 0.1)
+                token outputs:surface
+            }
+        }
+
+        def Material "yellow_mat"
+        {
+            token outputs:surface.connect = </FishRod/Materials/yellow_mat/surface.outputs:surface>
+
+            def Shader "surface"
+            {
+                uniform token info:id = "UsdPreviewSurface"
+                color3f inputs:diffuseColor = (1, 0.8, 0)
+                token outputs:surface
+            }
+        }
+    }
+
+    def Cube "Base" (
+        apiSchemas = ["PhysicsCollisionAPI", "PhysicsRigidBodyAPI"]
+    )
+    {
+        bool physics:kinematicEnabled = 1
+        double size = 0.1
+        quatf xformOp:orient = (0.9914449, 0, -0.13052619, 0)
+        double3 xformOp:translate = (0, 0, 0.05000000074505806)
+        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient"]
+    }
+
+    def Xform "Rod"
+    {
+        quatf xformOp:orient = (0.9914449, 0, -0.13052619, 0)
+        double3 xformOp:translate = (0, 0, 0.10000000149011612)
+        uniform token[] xformOpOrder = ["xformOp:orient", "xformOp:translate"]
+
+        def Cylinder "Segment0" (
+            apiSchemas = ["PhysicsCollisionAPI", "PhysicsRigidBodyAPI", "PhysicsMassAPI", "MaterialBindingAPI"]
+        )
+        {
+            double height = 0.5
+            rel material:binding = </FishRod/Materials/brown_mat>
+            float physics:angularDamping = 0.8
+            vector3f physics:angularVelocity = (0, 0, 0)
+            float physics:linearDamping = 0.5
+            float physics:mass = 0.009817476
+            vector3f physics:velocity = (0, 0, 0)
+            double radius = 0.025
+            quatf xformOp:orient = (1, 0, 0, 0)
+            float3 xformOp:scale = (1, 1, 1)
+            double3 xformOp:translate = (0.012940922752022743, 3.52651230699913e-13, 0.24829629063606262)
+            uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
+        }
+
+        def Cylinder "Segment1" (
+            apiSchemas = ["PhysicsCollisionAPI", "PhysicsRigidBodyAPI", "PhysicsMassAPI", "MaterialBindingAPI"]
+        )
+        {
+            double height = 0.5
+            rel material:binding = </FishRod/Materials/brown_mat>
+            float physics:angularDamping = 0.8
+            vector3f physics:angularVelocity = (0, 0, 0)
+            float physics:linearDamping = 0.5
+            float physics:mass = 0.009817476
+            vector3f physics:velocity = (0, 0, 0)
+            double radius = 0.025
+            quatf xformOp:orient = (0.82821524, -0.0032922262, -0.5603801, -0.0047791894)
+            float3 xformOp:scale = (1, 1, 1)
+            double3 xformOp:translate = (-0.22096358239650726, 0.0027398369275033474, 0.5911608934402466)
+            uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
+        }
+
+        def Cylinder "Segment2" (
+            apiSchemas = ["PhysicsCollisionAPI", "PhysicsRigidBodyAPI", "PhysicsMassAPI", "MaterialBindingAPI"]
+        )
+        {
+            double height = 0.5
+            rel material:binding = </FishRod/Materials/brown_mat>
+            float physics:angularDamping = 0.8
+            vector3f physics:angularVelocity = (0, 0, 0)
+            float physics:linearDamping = 0.5
+            float physics:mass = 0.009817476
+            vector3f physics:velocity = (0, 0, 0)
+            double radius = 0.025
+            quatf xformOp:orient = (0.72663224, -0.0030994175, -0.6869933, -0.006021184)
+            float3 xformOp:scale = (1, 1, 1)
+            double3 xformOp:translate = (-0.7031280994415283, 0.00866168737411499, 0.697363018989563)
+            uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
+        }
+
+        def Cylinder "Segment3" (
+            apiSchemas = ["PhysicsCollisionAPI", "PhysicsRigidBodyAPI", "PhysicsMassAPI", "MaterialBindingAPI"]
+        )
+        {
+            double height = 0.5
+            rel material:binding = </FishRod/Materials/brown_mat>
+            float physics:angularDamping = 0.8
+            vector3f physics:angularVelocity = (0, 0, 0)
+            float physics:linearDamping = 0.5
+            float physics:mass = 0.009817476
+            vector3f physics:velocity = (0, 0, 0)
+            double radius = 0.025
+            quatf xformOp:orient = (-0.62868035, 0.0038507404, 0.7776343, 0.005574263)
+            float3 xformOp:scale = (1, 1, 1)
+            double3 xformOp:translate = (-1.196951985359192, 0.015231250785291195, 0.6590588688850403)
+            uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
+        }
+
+        def Cube "Payload" (
+            apiSchemas = ["PhysicsCollisionAPI", "PhysicsRigidBodyAPI", "PhysicsMassAPI", "MaterialBindingAPI"]
+        )
+        {
+            rel material:binding = </FishRod/Materials/yellow_mat>
+            float physics:angularDamping = 5
+            vector3f physics:angularVelocity = (0, 0, 0)
+            float physics:linearDamping = 2
+            float physics:mass = 0.01836
+            vector3f physics:velocity = (0, 0, 0)
+            double size = 0.2
+            quatf xformOp:orient = (-0.50136024, 0.0030997815, 0.8652252, -0.0036987602)
+            float3 xformOp:scale = (1, 1, 1)
+            double3 xformOp:translate = (-1.4914295673370361, 0.018528763204813004, 0.5781421065330505)
+            uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
+        }
+    }
+
+    def "Joints"
+    {
+        def PhysicsFixedJoint "BaseJoint"
+        {
+            rel physics:body0 = </FishRod/Base>
+            rel physics:body1 = </FishRod/Rod/Segment0>
+            point3f physics:localPos0 = (0, 0, 0.05)
+            point3f physics:localPos1 = (0, 0, -0.25)
+        }
+
+        def PhysicsRevoluteJoint "Joint_0_1" (
+            apiSchemas = ["PhysicsDriveAPI:angular"]
+        )
+        {
+            float drive:angular:physics:damping = 12.0
+            float drive:angular:physics:stiffness = 50.1
+            uniform token physics:axis = "Y"
+            rel physics:body0 = </FishRod/Rod/Segment0>
+            rel physics:body1 = </FishRod/Rod/Segment1>
+            point3f physics:localPos0 = (0, 0, 0.25)
+            point3f physics:localPos1 = (0, 0, -0.25)
+        }
+
+        def PhysicsRevoluteJoint "Joint_1_2" (
+            apiSchemas = ["PhysicsDriveAPI:angular"]
+        )
+        {
+            float drive:angular:physics:damping = 4.3
+            float drive:angular:physics:stiffness = 10.8
+            uniform token physics:axis = "Y"
+            rel physics:body0 = </FishRod/Rod/Segment1>
+            rel physics:body1 = </FishRod/Rod/Segment2>
+            point3f physics:localPos0 = (0, 0, 0.25)
+            point3f physics:localPos1 = (0, 0, -0.25)
+        }
+
+        def PhysicsRevoluteJoint "Joint_2_3" (
+            apiSchemas = ["PhysicsDriveAPI:angular"]
+        )
+        {
+            float drive:angular:physics:damping = 1.7
+            float drive:angular:physics:stiffness = 1.5
+            uniform token physics:axis = "Y"
+            rel physics:body0 = </FishRod/Rod/Segment2>
+            rel physics:body1 = </FishRod/Rod/Segment3>
+            point3f physics:localPos0 = (0, 0, 0.25)
+            point3f physics:localPos1 = (0, 0, -0.25)
+        }
+
+        def Sphere "PayloadD6Joint_intermediate_0" (
+            apiSchemas = ["PhysicsCollisionAPI", "PhysicsRigidBodyAPI", "PhysicsMassAPI"]
+        )
+        {
+            vector3f physics:angularVelocity = (0, 0, 0)
+            float physics:mass = 0.001
+            vector3f physics:velocity = (0, 0, 0)
+            double radius = 0.005
+            quatf xformOp:orient = (-0.4515641, -0.05485467, 0.88685906, -0.08100493)
+            float3 xformOp:scale = (1, 1, 1)
+            double3 xformOp:translate = (-1.5770050287246704, 0.018660863861441612, 0.30769696831703186)
+            uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
+        }
+
+        def PhysicsRevoluteJoint "PayloadD6Joint_X_0" (
+            apiSchemas = ["PhysicsDriveAPI:angular", "PhysxJointAPI"]
+        )
+        {
+            float drive:angular:physics:damping = 8
+            float drive:angular:physics:stiffness = 80
+            float drive:angular:physics:targetPosition = 0
+            float drive:angular:physics:targetVelocity = 0
+            uniform token drive:angular:physics:type = "force"
+            uniform token physics:axis = "X"
+            rel physics:body0 = </FishRod/Rod/Segment3>
+            rel physics:body1 = </FishRod/Joints/PayloadD6Joint_intermediate_0>
+            float physics:breakForce = 30
+            point3f physics:localPos0 = (0, 0, 0.25)
+            point3f physics:localPos1 = (0, 0, 0)
+            float physics:lowerLimit = -0.5235988
+            float physics:upperLimit = 0.5235988
+        }
+
+        def Sphere "PayloadD6Joint_intermediate_1" (
+            apiSchemas = ["PhysicsCollisionAPI", "PhysicsRigidBodyAPI", "PhysicsMassAPI"]
+        )
+        {
+            vector3f physics:angularVelocity = (0, 0, 0)
+            float physics:mass = 0.001
+            vector3f physics:velocity = (0, 0, 0)
+            double radius = 0.005
+            quatf xformOp:orient = (-0.44703448, -0.055293527, 0.88911515, -0.08109894)
+            float3 xformOp:scale = (1, 1, 1)
+            double3 xformOp:translate = (-1.5790913105010986, 0.01867673546075821, 0.30619919300079346)
+            uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
+        }
+
+        def PhysicsRevoluteJoint "PayloadD6Joint_Y_1" (
+            apiSchemas = ["PhysicsDriveAPI:angular", "PhysxJointAPI"]
+        )
+        {
+            float drive:angular:physics:damping = 6
+            float drive:angular:physics:stiffness = 400
+            float drive:angular:physics:targetPosition = 0
+            float drive:angular:physics:targetVelocity = 0
+            uniform token drive:angular:physics:type = "force"
+            uniform token physics:axis = "Y"
+            rel physics:body0 = </FishRod/Joints/PayloadD6Joint_intermediate_0>
+            rel physics:body1 = </FishRod/Joints/PayloadD6Joint_intermediate_1>
+            float physics:breakForce = 30
+            point3f physics:localPos0 = (0, 0, 0)
+            point3f physics:localPos1 = (0, 0, 0)
+            float physics:lowerLimit = -0.5235988
+            float physics:upperLimit = 0.5235988
+        }
+
+        def PhysicsRevoluteJoint "PayloadD6Joint_Z_2" (
+            apiSchemas = ["PhysicsDriveAPI:angular", "PhysxJointAPI"]
+        )
+        {
+            float drive:angular:physics:damping = 4
+            float drive:angular:physics:stiffness = 200
+            float drive:angular:physics:targetPosition = 0
+            float drive:angular:physics:targetVelocity = 0
+            uniform token drive:angular:physics:type = "force"
+            uniform token physics:axis = "Z"
+            rel physics:body0 = </FishRod/Joints/PayloadD6Joint_intermediate_1>
+            rel physics:body1 = </FishRod/Rod/Payload>
+            float physics:breakForce = 30
+            point3f physics:localPos0 = (0, 0, 0)
+            point3f physics:localPos1 = (0, 0, -0.05)
+            float physics:lowerLimit = -1.5707964
+            float physics:upperLimit = 1.5707964
+        }
+    }
+}
+
+def "Render" (
+    hide_in_stage_window = true
+    no_delete = true
+)
+{
+    def "OmniverseKit"
+    {
+        def "HydraTextures" (
+            hide_in_stage_window = true
+            no_delete = true
+        )
+        {
+            def RenderProduct "omni_kit_widget_viewport_ViewportTexture_0" (
+                hide_in_stage_window = true
+                no_delete = true
+            )
+            {
+                rel camera = </OmniverseKit_Persp>
+                rel orderedVars = </Render/Vars/LdrColor>
+                custom bool overrideClipRange = 0
+                uniform int2 resolution = (1280, 720)
+                custom uint64 viewPickingId = 706156798938761
+                custom int viewportHandle = 0
+            }
+        }
+    }
+
+    def "Vars"
+    {
+        def RenderVar "LdrColor" (
+            hide_in_stage_window = true
+            no_delete = true
+        )
+        {
+            uniform string sourceName = "LdrColor"
+        }
+    }
+}
+
+def PhysicsScene "physicsScene" (
+    apiSchemas = ["PhysxSceneAPI"]
+)
+{
+    vector3f physics:gravityDirection = (0, 0, -1)
+    float physics:gravityMagnitude = 0
+    uniform token physxScene:broadphaseType = "MBP"
+    bool physxScene:enableCCD = 1
+    bool physxScene:enableGPUDynamics = 0
+    bool physxScene:enableStabilization = 1
+    uniform token physxScene:solverType = "TGS"
+    uint physxScene:timeStepsPerSecond = 60
+}
+
+def Xform "World"
+{
+    def PhysicsScene "physicsScene" (
+        apiSchemas = ["PhysxSceneAPI"]
+    )
+    {
+        vector3f physics:gravityDirection = (0, 0, -1)
+        float physics:gravityMagnitude = 0
+        float physxScene:bounceThreshold = 5
+        bool physxScene:enableStabilization = 1
+        uniform uint physxScene:maxPositionIterationCount = 16
+        uniform uint physxScene:maxVelocityIterationCount = 4
+    }
+
+    def DomeLight "DomeLight"
+    {
+        color3f inputs:color = (1, 1, 1)
+        float inputs:exposure = 0
+        float inputs:intensity = 1
+        token visibility = "invisible"
+    }
+
+    def DistantLight "SunLight"
+    {
+        color3f inputs:color = (1, 0.95, 0.8)
+        float inputs:exposure = 0
+        float inputs:intensity = 3
+        token visibility = "invisible"
+        float3 xformOp:rotateXYZ = (45, 30, 0)
+        uniform token[] xformOpOrder = ["xformOp:rotateXYZ"]
+    }
+}
+
+def Camera "OmniverseKit_Persp" (
+    customData = {
+        dictionary omni = {
+            dictionary kit = {
+                bool hide_in_stage_window = 1
+                bool no_delete = 1
+            }
+        }
+    }
+    hide_in_stage_window = true
+    kind = "component"
+    no_delete = true
+)
+{
+    float2 clippingRange = (0.01, 10000000)
+    float focalLength = 18.147562
+    float focusDistance = 400
+    custom uniform vector3d omni:kit:centerOfInterest = (0, 0, -8.660254037844386)
+    float3 xformOp:rotateXYZ = (54.73561, -6.3611094e-15, 135)
+    float3 xformOp:scale = (1, 1, 1)
+    double3 xformOp:translate = (5, 5, 5)
+    uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:rotateXYZ", "xformOp:scale"]
+}
+
+def Camera "OmniverseKit_Front" (
+    customData = {
+        dictionary omni = {
+            dictionary kit = {
+                bool hide_in_stage_window = 1
+                bool no_delete = 1
+            }
+        }
+    }
+    hide_in_stage_window = true
+    kind = "component"
+    no_delete = true
+)
+{
+    float2 clippingRange = (1, 10000000)
+    float horizontalAperture = 50
+    custom uniform vector3d omni:kit:centerOfInterest = (0, 0, -5)
+    token projection = "orthographic"
+    float verticalAperture = 50
+    float3 xformOp:rotateXYZ = (90, -1.2722219e-14, 90)
+    float3 xformOp:scale = (1, 1, 1)
+    double3 xformOp:translate = (5, 0, 0)
+    uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:rotateXYZ", "xformOp:scale"]
+}
+
+def Camera "OmniverseKit_Top" (
+    customData = {
+        dictionary omni = {
+            dictionary kit = {
+                bool hide_in_stage_window = 1
+                bool no_delete = 1
+            }
+        }
+    }
+    hide_in_stage_window = true
+    kind = "component"
+    no_delete = true
+)
+{
+    float2 clippingRange = (1, 10000000)
+    float horizontalAperture = 50
+    custom uniform vector3d omni:kit:centerOfInterest = (0, 0, -5)
+    token projection = "orthographic"
+    float verticalAperture = 50
+    float3 xformOp:rotateXYZ = (-1.2722219e-14, -7.016709e-15, -90)
+    float3 xformOp:scale = (1, 1, 1)
+    double3 xformOp:translate = (0, 0, 5)
+    uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:rotateXYZ", "xformOp:scale"]
+}
+
+def Camera "OmniverseKit_Right" (
+    customData = {
+        dictionary omni = {
+            dictionary kit = {
+                bool hide_in_stage_window = 1
+                bool no_delete = 1
+            }
+        }
+    }
+    hide_in_stage_window = true
+    kind = "component"
+    no_delete = true
+)
+{
+    float2 clippingRange = (1, 10000000)
+    float horizontalAperture = 50
+    custom uniform vector3d omni:kit:centerOfInterest = (0, 0, -5)
+    token projection = "orthographic"
+    float verticalAperture = 50
+    float3 xformOp:rotateXYZ = (90, -1.41245e-30, 1.2722219e-14)
+    float3 xformOp:scale = (1, 1, 1)
+    double3 xformOp:translate = (0, -5, 0)
+    uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:rotateXYZ", "xformOp:scale"]
+}
+

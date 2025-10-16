@@ -13,23 +13,7 @@ pip install -e source/SO_100
 The example below tests a LeRobot/SmolVLA-style pretrained model (a folder containing `model.safetensors` and `train_config.json`) using the viewport camera.
 
 ```bash
-python3 scripts/skrl/test_ACT.py \
-  --task Template-So-100-CubeLift-v0 \
-  --checkpoint /home/beable/lerobot/outputs/train/2025-08-18/02-38-09_act/checkpoints/080000/pretrained_model/ \
-  --dataset_root /home/beable/IsaacLab-SO_100/dataset \
-  --enable_cameras \
-  --camera_source viewport \
-  --camera_format rgb \
-  --action_map abs2default \
-  --arm_scales 3.1,0.8,2.1,0.8,1.5 \
-  --axis_signs 1,1,1,1,1 \
-  --binarize_gripper \
-  --normalize_state_limits \
-  --rate_limit 0.02 \
-  --rate_limit_gripper 0.15 \
-  --replan_every 16 \
-  --dump_model_input_step 0 \
-  --dump_model_input_dir outputs/model_input_rgb
+python3 scripts/skrl/test_ACT.py   --task Template-So-100-fishrod-CubeLift-v0   --checkpoint /home/beable/lerobot/outputs/train/2025-10-10/03-40-11_act/checkpoints/040000/pretrained_model/   --dataset_root /home/beable/IsaacLab-SO_100/dataset   --enable_cameras   --camera_source viewport   --camera_format rgb --action_map abs2default   --arm_scales 2.0,1.4,0.6,1.4,0.1 --dump_model_input_step 20 --dump_model_input_dir outputs/model_input_rgb --axis_signs=1,1,1,1,1 --debug_gripper 
 ```
 
 Alternatives:
@@ -63,7 +47,7 @@ Alternatives:
 - If the arm stalls near target, try: `--min_cmd 0.05 --pos_tol 0.02`.
 - If actions saturate, try `--squash` and/or adjust `--action_gain`.
 
-### Your preferred command (exact)
+### Preferred command (exact)
 ```bash
-python3 /home/beable/IsaacLab-SO_100/scripts/skrl/test_ACT.py   --task Template-So-100-CubeLift-v0   --checkpoint /home/beable/lerobot/outputs/train/2025-08-18/02-38-09_act/checkpoints/080000/pretrained_model/   --dataset_root /home/beable/IsaacLab-SO_100/dataset   --enable_cameras    --action_map abs2default  --axis_signs 1,1,1,1,1 --binarize_gripper --replan_every 48 --rate_limit 0.02 --rate_limit_gripper 0.15   --camera_source viewport   --dump_model_input_step 0 --dump_model_input_dir outputs/model_input_rgb --binarize_gripper  --arm_scales 3.1,0.8,2.1,0.8,1.5 --normalize_state_limits --replan_every 16
+python3 scripts/skrl/test_ACT.py   --task Template-So-100-fishrod-CubeLift-v0   --checkpoint /home/beable/lerobot/outputs/train/2025-10-10/03-40-11_act/checkpoints/040000/pretrained_model/   --dataset_root /home/beable/IsaacLab-SO_100/dataset   --enable_cameras   --camera_source viewport   --camera_format rgb --action_map abs2default   --arm_scales 2.0,1.4,0.6,1.4,0.1 --dump_model_input_step 20 --dump_model_input_dir outputs/model_input_rgb --axis_signs=1,1,1,1,1 --debug_gripper 
 ``` 
