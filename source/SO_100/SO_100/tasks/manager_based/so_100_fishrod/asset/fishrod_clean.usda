@@ -48,10 +48,13 @@ def "FishRod"
     }
 
     def Cube "Base" (
-        apiSchemas = ["PhysicsCollisionAPI", "PhysicsRigidBodyAPI"]
+        apiSchemas = ["PhysicsCollisionAPI", "PhysicsRigidBodyAPI", "PhysicsMassAPI"]
     )
     {
         bool physics:kinematicEnabled = 1
+        float physics:angularDamping = 1000.0
+        float physics:linearDamping = 1000.0
+        float physics:mass = 1000000.0
         double size = 0.1
         quatf xformOp:orient = (0.9914449, 0, -0.13052619, 0)
         double3 xformOp:translate = (0, 0, 0.05000000074505806)
@@ -65,7 +68,7 @@ def "FishRod"
         uniform token[] xformOpOrder = ["xformOp:orient", "xformOp:translate"]
 
         def Cylinder "Segment0" (
-            apiSchemas = ["PhysicsCollisionAPI", "PhysicsRigidBodyAPI", "PhysicsMassAPI", "MaterialBindingAPI"]
+            apiSchemas = ["PhysicsCollisionAPI", "PhysicsRigidBodyAPI", "PhysicsMassAPI", "MaterialBindingAPI", "PhysxRigidBodyAPI"]
         )
         {
             double height = 0.5
@@ -75,6 +78,8 @@ def "FishRod"
             float physics:linearDamping = 0.5
             float physics:mass = 0.009817476
             vector3f physics:velocity = (0, 0, 0)
+            float physxRigidBody:maxLinearVelocity = 3.0
+            float physxRigidBody:maxAngularVelocity = 8.0
             double radius = 0.025
             quatf xformOp:orient = (1, 0, 0, 0)
             float3 xformOp:scale = (1, 1, 1)
@@ -83,7 +88,7 @@ def "FishRod"
         }
 
         def Cylinder "Segment1" (
-            apiSchemas = ["PhysicsCollisionAPI", "PhysicsRigidBodyAPI", "PhysicsMassAPI", "MaterialBindingAPI"]
+            apiSchemas = ["PhysicsCollisionAPI", "PhysicsRigidBodyAPI", "PhysicsMassAPI", "MaterialBindingAPI", "PhysxRigidBodyAPI"]
         )
         {
             double height = 0.5
@@ -93,6 +98,8 @@ def "FishRod"
             float physics:linearDamping = 0.5
             float physics:mass = 0.009817476
             vector3f physics:velocity = (0, 0, 0)
+            float physxRigidBody:maxLinearVelocity = 3.0
+            float physxRigidBody:maxAngularVelocity = 8.0
             double radius = 0.025
             quatf xformOp:orient = (0.82821524, -0.0032922262, -0.5603801, -0.0047791894)
             float3 xformOp:scale = (1, 1, 1)
@@ -101,7 +108,7 @@ def "FishRod"
         }
 
         def Cylinder "Segment2" (
-            apiSchemas = ["PhysicsCollisionAPI", "PhysicsRigidBodyAPI", "PhysicsMassAPI", "MaterialBindingAPI"]
+            apiSchemas = ["PhysicsCollisionAPI", "PhysicsRigidBodyAPI", "PhysicsMassAPI", "MaterialBindingAPI", "PhysxRigidBodyAPI"]
         )
         {
             double height = 0.5
@@ -111,6 +118,8 @@ def "FishRod"
             float physics:linearDamping = 0.5
             float physics:mass = 0.009817476
             vector3f physics:velocity = (0, 0, 0)
+            float physxRigidBody:maxLinearVelocity = 3.0
+            float physxRigidBody:maxAngularVelocity = 8.0
             double radius = 0.025
             quatf xformOp:orient = (0.72663224, -0.0030994175, -0.6869933, -0.006021184)
             float3 xformOp:scale = (1, 1, 1)
@@ -119,7 +128,7 @@ def "FishRod"
         }
 
         def Cylinder "Segment3" (
-            apiSchemas = ["PhysicsCollisionAPI", "PhysicsRigidBodyAPI", "PhysicsMassAPI", "MaterialBindingAPI"]
+            apiSchemas = ["PhysicsCollisionAPI", "PhysicsRigidBodyAPI", "PhysicsMassAPI", "MaterialBindingAPI", "PhysxRigidBodyAPI"]
         )
         {
             double height = 0.5
@@ -129,6 +138,8 @@ def "FishRod"
             float physics:linearDamping = 0.5
             float physics:mass = 0.009817476
             vector3f physics:velocity = (0, 0, 0)
+            float physxRigidBody:maxLinearVelocity = 3.0
+            float physxRigidBody:maxAngularVelocity = 8.0
             double radius = 0.025
             quatf xformOp:orient = (-0.62868035, 0.0038507404, 0.7776343, 0.005574263)
             float3 xformOp:scale = (1, 1, 1)
@@ -137,15 +148,17 @@ def "FishRod"
         }
 
         def Cube "Payload" (
-            apiSchemas = ["PhysicsCollisionAPI", "PhysicsRigidBodyAPI", "PhysicsMassAPI", "MaterialBindingAPI"]
+            apiSchemas = ["PhysicsCollisionAPI", "PhysicsRigidBodyAPI", "PhysicsMassAPI", "MaterialBindingAPI", "PhysxRigidBodyAPI"]
         )
         {
             rel material:binding = </FishRod/Materials/yellow_mat>
-            float physics:angularDamping = 5
+            float physics:angularDamping = 15
             vector3f physics:angularVelocity = (0, 0, 0)
-            float physics:linearDamping = 2
-            float physics:mass = 0.01836
+            float physics:linearDamping = 10
+            float physics:mass = 0.23836
             vector3f physics:velocity = (0, 0, 0)
+            float physxRigidBody:maxLinearVelocity = 2.0
+            float physxRigidBody:maxAngularVelocity = 5.0
             double size = 0.2
             quatf xformOp:orient = (-0.50136024, 0.0030997815, 0.8652252, -0.0036987602)
             float3 xformOp:scale = (1, 1, 1)
@@ -165,11 +178,13 @@ def "FishRod"
         }
 
         def PhysicsRevoluteJoint "Joint_0_1" (
-            apiSchemas = ["PhysicsDriveAPI:angular"]
+            apiSchemas = ["PhysicsDriveAPI:angular", "PhysicsLimitAPI:angular"]
         )
         {
             float drive:angular:physics:damping = 12.0
             float drive:angular:physics:stiffness = 50.1
+            float physics:lowerLimit = -0.1
+            float physics:upperLimit = 0.1
             uniform token physics:axis = "Y"
             rel physics:body0 = </FishRod/Rod/Segment0>
             rel physics:body1 = </FishRod/Rod/Segment1>
@@ -178,11 +193,13 @@ def "FishRod"
         }
 
         def PhysicsRevoluteJoint "Joint_1_2" (
-            apiSchemas = ["PhysicsDriveAPI:angular"]
+            apiSchemas = ["PhysicsDriveAPI:angular", "PhysicsLimitAPI:angular"]
         )
         {
             float drive:angular:physics:damping = 4.3
             float drive:angular:physics:stiffness = 10.8
+            float physics:lowerLimit = -0.1
+            float physics:upperLimit = 0.1
             uniform token physics:axis = "Y"
             rel physics:body0 = </FishRod/Rod/Segment1>
             rel physics:body1 = </FishRod/Rod/Segment2>
@@ -191,11 +208,13 @@ def "FishRod"
         }
 
         def PhysicsRevoluteJoint "Joint_2_3" (
-            apiSchemas = ["PhysicsDriveAPI:angular"]
+            apiSchemas = ["PhysicsDriveAPI:angular", "PhysicsLimitAPI:angular"]
         )
         {
             float drive:angular:physics:damping = 1.7
             float drive:angular:physics:stiffness = 1.5
+            float physics:lowerLimit = -0.1
+            float physics:upperLimit = 0.1
             uniform token physics:axis = "Y"
             rel physics:body0 = </FishRod/Rod/Segment2>
             rel physics:body1 = </FishRod/Rod/Segment3>

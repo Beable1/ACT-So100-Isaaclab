@@ -1,4 +1,3 @@
-
 # Copyright (c) 2022-2025, The Isaac Lab Project Developers.
 # All rights reserved.
 # SPDX-License-Identifier: BSD-3-Clause
@@ -13,6 +12,7 @@ from isaaclab.sim.schemas.schemas_cfg import RigidBodyPropertiesCfg, MassPropert
 
 import isaaclab.sim as sim_utils
 from isaaclab.assets import ArticulationCfg, AssetBaseCfg, RigidObjectCfg
+from isaaclab.actuators import ImplicitActuatorCfg
 from isaaclab.envs import ManagerBasedRLEnvCfg
 from isaaclab.managers import CurriculumTermCfg as CurrTerm
 from isaaclab.managers import EventTermCfg as EventTerm
@@ -56,8 +56,8 @@ FISHROD_USD_SELECTED = (
     else (_FISHROD_CLEAN_CANDIDATE if os.path.isfile(_FISHROD_CLEAN_CANDIDATE) else FISHROD_USDA)
 )
 
-# Load fishrod spawn settings from fishrod/config.yaml (to mirror fish_rod_with_config.py)
-_FISHROD_CFG_PATH = os.path.join(_REPO_ROOT, "fishrod", "config.yaml")
+# Load fishrod spawn settings from config.yaml in the same directory
+_FISHROD_CFG_PATH = os.path.join(_THIS_DIR, "config.yaml")
 
 def euler_to_quaternion(roll_deg, pitch_deg, yaw_deg):
     """Convert Euler angles (degrees) to quaternion (w, x, y, z)"""
@@ -121,26 +121,14 @@ def generate_randomized_pose(config):
         base_position[2] + z_offset
     ]
     
-    # Generate orientation offsets
-    orient_offset_config = randomization_config.get('orientation_offset_range', {})
-    roll_offset = random.uniform(orient_offset_config.get('roll', [0.0, 0.0])[0], orient_offset_config.get('roll', [0.0, 0.0])[1])
-    pitch_offset = random.uniform(orient_offset_config.get('pitch', [0.0, 0.0])[0], orient_offset_config.get('pitch', [0.0, 0.0])[1])
-    yaw_offset = random.uniform(orient_offset_config.get('yaw', [0.0, 0.0])[0], orient_offset_config.get('yaw', [0.0, 0.0])[1])
+    # Keep orientation fixed (no randomization)
+    randomized_orientation = base_orientation
     
-    # Apply offsets to base orientation
-    randomized_orientation = [
-        base_orientation[0] + roll_offset,
-        base_orientation[1] + pitch_offset,
-        base_orientation[2] + yaw_offset
-    ]
-    
-    print(f"🎲 Randomization enabled:")
+    print(f"🎲 Position randomization enabled (rotation fixed):")
     print(f"   Base position: {base_position}")
     print(f"   Randomized position: {randomized_position}")
     print(f"   Position offsets: [{x_offset:.3f}, {y_offset:.3f}, {z_offset:.3f}]")
-    print(f"   Base orientation: {base_orientation}")
-    print(f"   Randomized orientation: {randomized_orientation}")
-    print(f"   Orientation offsets: [{roll_offset:.1f}, {pitch_offset:.1f}, {yaw_offset:.1f}] degrees")
+    print(f"   Orientation (fixed): {randomized_orientation} degrees")
     
     return randomized_position, randomized_orientation
 
@@ -287,7 +275,7 @@ class ObjectTableSceneCfg(InteractiveSceneCfg):
         actuators=SO100_CFG.actuators
     )
     fishrod = AssetBaseCfg(
-        prim_path="/World/FishRod",
+        prim_path="{ENV_REGEX_NS}/FishRod",
         init_state=AssetBaseCfg.InitialStateCfg(
             pos=_FISHROD_BASE_POS,
             rot=euler_to_quaternion(*_FISHROD_BASE_ORIENT),
@@ -343,6 +331,24 @@ class ObjectTableSceneCfg(InteractiveSceneCfg):
         ),
         history_length=1,
         debug_vis=False
+    )
+    # Wrap the existing payload rigid body prim to access dynamic world pose tensors
+    payload = RigidObjectCfg(
+        prim_path="{ENV_REGEX_NS}/FishRod/Rod/Payload",
+        # No spawn: we are referencing an existing prim from the fishrod USD
+        spawn=None,
+    )
+    # Optional: Frame transformer can still track payload visually if needed
+    payload_frame = FrameTransformerCfg(
+        prim_path="/SOARM100/Moving_Jaw",
+        debug_vis=False,
+        target_frames=[
+            FrameTransformerCfg.FrameCfg(
+                prim_path="{ENV_REGEX_NS}/FishRod/Rod/Payload",
+                name="payload",
+                offset=CameraCfg.OffsetCfg(pos=(0.0, 0.0, 0.0))
+            )
+        ]
     )
 
 
@@ -438,20 +444,47 @@ def _randomize_fishrod_pose_event(env, env_ids):
         with open(_FISHROD_CFG_PATH, "r") as f:
             cfg = yaml.safe_load(f) or {}
         
-        # Generate new randomized pose
-        randomized_position, randomized_orientation = generate_randomized_pose(cfg)
+        # Check if randomization is enabled
+        fishrod_config = cfg.get('fishrod', {})
+        randomization_config = fishrod_config.get('randomization', {})
+        is_enabled = randomization_config.get('enabled', False)
+        
+        if not is_enabled:
+            print("[FISHROD] Randomization is disabled in config.yaml")
+            return
+        
+        print(f"[FISHROD] Randomizing pose for {len(env_ids)} environment(s)")
+        
+        # Generate new randomized position (orientation stays fixed at base)
+        randomized_position, _ = generate_randomized_pose(cfg)
+        
+        # Use base orientation (never randomize it)
+        base_orientation = _FISHROD_BASE_ORIENT
         
         # Convert to tensors
         pos_tensor = torch.tensor(randomized_position, dtype=torch.float32, device=env.device)
-        quat_tensor = torch.tensor(euler_to_quaternion(*randomized_orientation), dtype=torch.float32, device=env.device)
+        quat_tensor = torch.tensor(euler_to_quaternion(*base_orientation), dtype=torch.float32, device=env.device)
         
-        # Get fishrod asset
+        # Get fishrod asset (now AssetBase, not Articulation)
         fishrod = env.scene["fishrod"]
         
+        # Ensure tensors have correct shape (num_envs, 3) and (num_envs, 4)
+        if pos_tensor.ndim == 1:
+            pos_tensor = pos_tensor.unsqueeze(0)
+        if quat_tensor.ndim == 1:
+            quat_tensor = quat_tensor.unsqueeze(0)
+        
+        # Expand to all environments if needed
+        num_envs = len(env_ids)
+        if pos_tensor.shape[0] == 1 and num_envs > 1:
+            pos_tensor = pos_tensor.repeat(num_envs, 1)
+        if quat_tensor.shape[0] == 1 and num_envs > 1:
+            quat_tensor = quat_tensor.repeat(num_envs, 1)
+        
         # Set position and orientation for all reset environments
-        for env_id in env_ids:
-            fishrod.data.root_pos_w[env_id] = pos_tensor
-            fishrod.data.root_quat_w[env_id] = quat_tensor
+        for idx, env_id in enumerate(env_ids):
+            fishrod.data.root_pos_w[env_id] = pos_tensor[idx]
+            fishrod.data.root_quat_w[env_id] = quat_tensor[idx]
         
         # Write changes to simulation
         fishrod.write_root_pose_to_sim(fishrod.data.root_pos_w, fishrod.data.root_quat_w, env_ids=env_ids)
@@ -479,6 +512,75 @@ def _clear_gpu_cache_event(env, env_ids):
     except Exception:
         pass
 
+
+def _log_payload_position_event(env, env_ids):
+    """Print payload world position using articulation body data."""
+    try:
+        if "fishrod" in env.scene:
+            fishrod = env.scene["fishrod"]
+            body_indices, _ = fishrod.find_bodies("Payload")
+            if len(body_indices) > 0:
+                idx = int(body_indices[0].item())
+                for env_id in env_ids:
+                    px, py, pz = fishrod.data.body_pos_w[env_id, idx].tolist()
+                    print(f"[PAYLOAD][env {int(env_id)}] world pos: x={px:.4f}, y={py:.4f}, z={pz:.4f}")
+            return
+        # fallback to frame transformer if needed
+        frame = env.scene.get("payload_frame", None)
+        if frame is not None:
+            pos = frame.data.target_pos_w  # (num_envs, 1, 3)
+            for env_id in env_ids:
+                px, py, pz = pos[env_id, 0].tolist()
+                print(f"[PAYLOAD][env {int(env_id)}] world pos: x={px:.4f}, y={py:.4f}, z={pz:.4f}")
+    except Exception:
+        # Keep silent on transient issues
+        return
+
+
+def _log_fixed_jaw_position_event(env, env_ids):
+    """Print Fixed_Jaw world position."""
+    try:
+        # Check if robot exists in scene using hasattr or try-except
+        try:
+            robot = env.scene["robot"]
+        except KeyError:
+            print("[FIXED_JAW] Robot not found in scene")
+            return
+        
+        # Debug: print all body names (only once)
+        if not hasattr(_log_fixed_jaw_position_event, '_debug_printed'):
+            print(f"[FIXED_JAW] Available body names: {robot.body_names}")
+            _log_fixed_jaw_position_event._debug_printed = True
+        
+        # Find body index for Fixed_Jaw
+        fixed_jaw_idx = None
+        
+        for i, body_name in enumerate(robot.body_names):
+            # Try multiple variations of the name
+            body_name_lower = body_name.lower()
+            if ("fixed" in body_name_lower and "jaw" in body_name_lower) or \
+               body_name == "Fixed_Jaw" or \
+               body_name.endswith("Fixed_Jaw") or \
+               body_name.endswith("fixed_jaw"):
+                fixed_jaw_idx = i
+                print(f"[FIXED_JAW] Found body '{body_name}' at index {i}")
+                break
+        
+        # Get position from body state
+        if fixed_jaw_idx is not None:
+            fixed_jaw_pos = robot.data.body_state_w[:, fixed_jaw_idx, :3]
+            for env_id in env_ids:
+                fx, fy, fz = fixed_jaw_pos[env_id].tolist()
+                print(f"[FIXED_JAW][env {int(env_id)}] world pos: x={fx:.4f}, y={fy:.4f}, z={fz:.4f}")
+        else:
+            print(f"[FIXED_JAW] Fixed_Jaw body not found. Available bodies: {robot.body_names}")
+    except Exception as e:
+        # Print exception for debugging
+        print(f"[FIXED_JAW] Error: {e}")
+        import traceback
+        traceback.print_exc()
+        return
+
 @configclass
 class RewardsCfg:
     """Reward terms for the MDP."""
@@ -487,6 +589,12 @@ class RewardsCfg:
         func=mdp.joint_vel_l2,
         weight=-1e-4,
         params={"asset_cfg": SceneEntityCfg("robot")},
+    )
+    # Reward for reducing distance between payload and Fixed_Jaw
+    payload_jaw_distance = RewTerm(
+        func=mdp.payload_jaw_distance,
+        weight=1.0,
+        params={"std": 0.15},  # Standard deviation for tanh kernel (15cm)
     )
 
 @configclass
@@ -519,9 +627,9 @@ class SO100LiftEnvCfg(ManagerBasedRLEnvCfg):
 
     def __post_init__(self):
         """Post initialization."""
-        self.decimation = 2  # 60Hz / 2 = 30Hz control (matches dataset frequency)
+        self.decimation = 1  # 60Hz / 2 = 30Hz control (matches dataset frequency)
         self.episode_length_s = 20.0  # Increased from 5.0 to 20.0 seconds for longer episodes
-        self.sim.dt = 1.0 / 60.0  # simulation.py ile aynı
+        self.sim.dt = 1.0 / 30.0  # simulation.py ile aynı
         self.sim.render_interval = self.decimation
         self.sim.device = "cpu"  # AMD GPU için CPU kullan
         self.sim.physx.bounce_threshold_velocity = 0.2
@@ -561,16 +669,32 @@ class SO100LiftEnvCfg(ManagerBasedRLEnvCfg):
             # Enable Indirect Diffuse first
             settings.set("/rtx/indirectDiffuse/enabled", True)
             # Then enable AO within Indirect Diffuse (this is the UI checkbox)
-            settings.set("/rtx/indirectDiffuse/ambientOcclusion/enabled", True)
-            settings.set("/rtx/indirectDiffuse/ambientOcclusion/radius", 0.5)
-            settings.set("/rtx/indirectDiffuse/ambientOcclusion/intensity", 1.0)
+            settings.set("/rtx/ambientOcclusion/enabled", True)
+            settings.set("/rtx/ambientOcclusion/radius", 0.5)
+            settings.set("/rtx/ambientOcclusion/intensity", 1.0)
             
             # Try alternative paths as well
             settings.set("/rtx/indirectDiffuse/ao/enabled", True)
             settings.set("/rtx/indirectDiffuse/aoEnabled", True)
             
             # Standard SSAO (Post-process)
-            settings.set("/rtx/ambientOcclusion/enabled", True)
+            # Use set_as for persistent settings that may not exist yet
+            ao_path = "/rtx/ambientOcclusion/enabled"
+            try:
+                # Try to set directly first
+                settings.set(ao_path, True)
+            except Exception:
+                # If that fails, try creating the setting
+                try:
+                    if hasattr(settings, 'create_setting'):
+                        settings.create_setting(ao_path, True, carb.settings.SettingsType.BOOL)
+                    else:
+                        # Fallback: try set_as which creates if doesn't exist
+                        settings.set_as(ao_path, True, carb.settings.SettingsType.BOOL)
+                except Exception:
+                    # Last resort: try with persistent flag
+                    settings.set(ao_path, True, persistent=True)
+            
             settings.set("/rtx/ambientOcclusion/intensity", 1.0)
             settings.set("/rtx/ambientOcclusion/radius", 0.5)
             settings.set("/rtx/ambientOcclusion/falloff", 0.5)
@@ -589,8 +713,13 @@ class SO100LiftEnvCfg(ManagerBasedRLEnvCfg):
             settings.set("/rtx/post/colorCorrection/enabled", True)
             
             # Debug: Print current AO settings
-            ao_enabled = settings.get("/rtx/indirectDiffuse/ambientOcclusion/enabled")
-            print(f"[INFO] Indirect Diffuse AO enabled: {ao_enabled}")
-            print("[INFO] Render settings applied: Indirect Diffuse AO + SSAO enabled")
+            try:
+                ao_enabled_indirect = settings.get("/rtx/indirectDiffuse/ambientOcclusion/enabled")
+                ao_enabled_ssao = settings.get("/rtx/ambientOcclusion/enabled")
+                print(f"[INFO] Indirect Diffuse AO enabled: {ao_enabled_indirect}")
+                print(f"[INFO] SSAO enabled: {ao_enabled_ssao}")
+                print("[INFO] Render settings applied: Indirect Diffuse AO + SSAO enabled")
+            except Exception:
+                print("[INFO] Render settings applied (AO status check skipped)")
         except Exception as exc:
             print(f"[WARNING] Renderer settings could not be applied: {exc}")
