@@ -51,3 +51,6 @@ Alternatives:
 ```bash
 python3 scripts/skrl/test_ACT.py   --task Template-So-100-fishrod-CubeLift-v0   --checkpoint /home/beable/lerobot/outputs/train/2025-10-10/03-40-11_act/checkpoints/040000/pretrained_model/   --dataset_root /home/beable/IsaacLab-SO_100/dataset   --enable_cameras   --camera_source viewport   --camera_format rgb --action_map abs2default   --arm_scales 2.0,1.4,0.6,1.4,0.1 --dump_model_input_step 20 --dump_model_input_dir outputs/model_input_rgb --axis_signs=1,1,1,1,1 --debug_gripper 
 ``` 
+
+
+conda activate isaaclab && python3 scripts/skrl/test_Diffision.py   --task Template-So-100-fishrod-CubeLift-v0   --checkpoint /home/beable/lerobot/outputs/train/2025-12-16/03-37-23_diffusion/checkpoints/040000/pretrained_model   --dataset_root /home/beable/IsaacLab-SO_100/Jia-63ep-normalized   --enable_cameras --camera_source viewport --camera_format rgb   --action_map abs2default --arm_scales 2.0,1.0,2.2,1.5,1.5   --diffusion_n_action_steps 32   --horizon 220 --num_rollouts 5

@@ -42,12 +42,13 @@ SO100_CFG = ArticulationCfg(
     ),
     init_state=ArticulationCfg.InitialStateCfg(
         joint_pos={
-            "Rotation": 0.0,     # Omuz rotasyonu (sol/sağ dönme)
-            "Pitch": 2.8,        # Omuz pitch (öne/arkaya eğilme) - Değiştirildi: 1.8 → 1.2
-            "Elbow": 2.5,        # Dirsek açısı - Değiştirildi: 1.8 → 1.5
-            "Wrist_Pitch": 0.3,  # Bilek pitch - Değiştirildi: 0.5 → 0.3
-            "Wrist_Roll": 1.5,   # Bilek roll (dönme)
-            "Jaw": 0.0,          # Gripper (0 = kapalı)
+            # Dataset ortalamasına yakın başlangıç pozisyonları
+            "Rotation": -0.16,   # Dataset mean: -0.169
+            "Pitch": 1.97,       # Dataset mean: 1.966
+            "Elbow": 1.82,       # Dataset mean: 1.816
+            "Wrist_Pitch": 0.83, # Dataset mean: 0.831
+            "Wrist_Roll": 0.84,  # Dataset mean: 0.837
+            "Jaw": 0.39,         # Dataset mean: 0.386
         },
         # Set initial joint velocities to zero
         joint_vel={".*": 0.0},

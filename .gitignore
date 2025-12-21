@@ -70,3 +70,6 @@ logs/skrl/SO100_lift/trained/checkpoints/*
 
 # Pre-Trained Checkpoints
 /.pretrained_checkpoints/
+/dataset/
+/Jia-63ep/
+/Jia-63ep-normalized/

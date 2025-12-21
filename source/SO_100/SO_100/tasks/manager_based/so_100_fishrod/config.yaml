@@ -10,7 +10,7 @@ fishrod:
   
   # Randomization Settings
   randomization:
-    enabled: true  # Enable/disable position and orientation randomization
+    enabled: false  # Disabled - GPU Direct API doesn't support runtime pose changes
     
     # Position offset ranges (added to base_position)
     position_offset_range:

@@ -4,36 +4,33 @@
 # SPDX-License-Identifier: BSD-3-Clause
 
 """
-Script to EVALUATE or TRAIN policies in Isaac Lab environment.
+Script to EVALUATE or TRAIN Diffusion Policy in Isaac Lab environment.
 
 MODES:
-1. EVALUATION MODE (default) - Test pre-trained policies
-2. TRAINING MODE (--train flag) - Train ACT policy with online RL (PPO)
+1. EVALUATION MODE (default) - Test pre-trained Diffusion policies
+2. TRAINING MODE (--train flag) - Train Diffusion policy with online RL (Reward-Weighted BC)
 
 Supported policy types (evaluation):
+- LeRobot Diffusion Policy pretrained models (model.safetensors + train_config.json)
 - Behavior Cloning (BC) checkpoints (.pt files)
-- LeRobot/SmolVLA pretrained models (model.safetensors + train_config.json)
-- Skrl PPO agents (agent.pkl)
 - Robomimic policies
 
 Usage examples:
   
-  # TRAINING MODE - Train ACT policy with online RL
-  python Act_RL.py --train \
-      --task Template-So-100-FishRod-CubeLift-v0 \
-      --pretrained /path/to/lerobot/model/ \
-      --num_envs 4 \
-      --max_iterations 2000 \
-      --enable_cameras
+  # TRAINING MODE - Train Diffusion policy with online RL
+  python Diffision_RL.py --train \
+      --task Template-So-100-fishrod-CubeLift-v0 \
+      --pretrained /path/to/lerobot/diffusion/model/ \
+      --dataset_root /path/to/dataset \
+      --use_vision \
+      --bc_lambda 0.1 \
+      --max_iterations 1000
   
-  # EVALUATION MODE - Evaluate BC vision model
-  python Act_RL.py --checkpoint outputs/bc_best.pt --task Template-So-100-FishRod-CubeLift-v0 --num_rollouts 10
-  
-  # EVALUATION MODE - Evaluate Skrl PPO agent
-  python Act_RL.py --checkpoint logs/skrl/SO100_lift/checkpoints/latest/agent.pkl --task Template-So-100-CubeLift-v0
+  # EVALUATION MODE - Evaluate Diffusion model
+  python Diffision_RL.py --checkpoint /path/to/diffusion/model --task Template-So-100-fishrod-CubeLift-v0 --num_rollouts 5
   
   # EVALUATION MODE - Evaluate with action mapping
-  python Act_RL.py --checkpoint outputs/bc_best.pt --action_map abs2norm --arm_scale 0.5
+  python Diffision_RL.py --checkpoint /path/to/model --action_map abs2default --arm_scales 2.0,1.4,0.6,1.4,0.1
 """
 
 """Launch Isaac Sim Simulator first."""
@@ -43,8 +40,8 @@ import argparse
 from isaaclab.app import AppLauncher
 
 # add argparse arguments
-parser = argparse.ArgumentParser(description="Evaluate or train policies for Isaac Lab environment.")
-parser.add_argument("--train", action="store_true", default=False, help="Enable training mode (uses train_Act_RL.py). If not set, runs evaluation only.")
+parser = argparse.ArgumentParser(description="Evaluate or train Diffusion Policy for Isaac Lab environment.")
+parser.add_argument("--train", action="store_true", default=False, help="Enable training mode (uses train_Diffision_RL.py). If not set, runs evaluation only.")
 parser.add_argument(
     "--disable_fabric", action="store_true", default=False, help="Disable fabric and use USD I/O operations."
 )

@@ -134,7 +134,7 @@ def generate_randomized_pose(config):
 
 def _load_fishrod_spawn_cfg():
     try:
-        with open(_FISHROD_CFG_PATH, "r") as f:
+        with open(_FISHROD_CFG_PATH, "r", encoding="utf-8") as f:
             cfg = yaml.safe_load(f) or {}
     except Exception:
         cfg = {}
@@ -146,11 +146,17 @@ def _load_fishrod_spawn_cfg():
     
     return float(scale), tuple(randomized_position), tuple(randomized_orientation)
 
-_FISHROD_SCALE, _FISHROD_BASE_POS, _FISHROD_BASE_ORIENT = _load_fishrod_spawn_cfg()
+# Hardcoded fishrod spawn (config.yaml NOT used)
+# Only sets FishRod root transform position, no child modifications
+_FISHROD_SCALE = 0.15
+_FISHROD_BASE_POS = (0.1, -0.04, 0.0)
+_FISHROD_BASE_ORIENT = (0.0, -15.0, 0.0)
+
+print(f"[FISHROD CONFIG] Scale: {_FISHROD_SCALE}, Position: {_FISHROD_BASE_POS}, Orientation: {_FISHROD_BASE_ORIENT}")
 
 def _load_camera_cfg():
     try:
-        with open(_FISHROD_CFG_PATH, "r") as f:
+        with open(_FISHROD_CFG_PATH, "r", encoding="utf-8") as f:
             cfg = yaml.safe_load(f) or {}
     except Exception:
         cfg = {}
@@ -163,7 +169,7 @@ def _load_camera_cfg():
 _ROBOT_CAM_CFG_PATH = os.path.join(_REPO_ROOT, "fishrod", "robot_camera_config.yaml")
 def _load_ext_camera_cfg():
     try:
-        with open(_ROBOT_CAM_CFG_PATH, "r") as f:
+        with open(_ROBOT_CAM_CFG_PATH, "r", encoding="utf-8") as f:
             cfg = yaml.safe_load(f) or {}
     except Exception:
         cfg = {}
@@ -205,7 +211,7 @@ def _pick_local_simple_room() -> str:
 # Load environment settings from robot_camera_config.yaml (if present)
 _ENV_BG_PATH, _ENV_REF_PATH = (None, None)
 try:
-	with open(_ROBOT_CAM_CFG_PATH, "r") as f:
+	with open(_ROBOT_CAM_CFG_PATH, "r", encoding="utf-8") as f:
 		_cfg_tmp = yaml.safe_load(f) or {}
 	_env_cfg = (_cfg_tmp.get("environment", {}) or {})
 	_ENV_BG_PATH = _env_cfg.get("background_path", "/Isaac/Environments/Grid/default_environment.usd")
@@ -332,11 +338,24 @@ class ObjectTableSceneCfg(InteractiveSceneCfg):
         history_length=1,
         debug_vis=False
     )
-    # Wrap the existing payload rigid body prim to access dynamic world pose tensors
+    # Hardcoded payload spawn (independent from USD)
     payload = RigidObjectCfg(
-        prim_path="{ENV_REGEX_NS}/FishRod/Rod/Payload",
-        # No spawn: we are referencing an existing prim from the fishrod USD
-        spawn=None,
+        prim_path="{ENV_REGEX_NS}/Payload",
+        init_state=RigidObjectCfg.InitialStateCfg(
+            pos=(5.4, 0.0, 0.5),  # Hardcoded world position [x, y, z]
+            rot=(1.0, 0.0, 0.0, 0.0),  # Identity quaternion (w, x, y, z)
+        ),
+        spawn=sim_utils.CuboidCfg(
+            size=(0.03, 0.03, 0.03),  # 3cm yellow cube
+            rigid_props=sim_utils.RigidBodyPropertiesCfg(
+                max_linear_velocity=2.0,
+                max_angular_velocity=5.0,
+                disable_gravity=False,
+            ),
+            mass_props=sim_utils.MassPropertiesCfg(mass=0.1),
+            collision_props=sim_utils.CollisionPropertiesCfg(),
+            visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(1.0, 0.8, 0.0)),  # Yellow
+        ),
     )
     # Optional: Frame transformer can still track payload visually if needed
     payload_frame = FrameTransformerCfg(
@@ -344,7 +363,7 @@ class ObjectTableSceneCfg(InteractiveSceneCfg):
         debug_vis=False,
         target_frames=[
             FrameTransformerCfg.FrameCfg(
-                prim_path="{ENV_REGEX_NS}/FishRod/Rod/Payload",
+                prim_path="{ENV_REGEX_NS}/Payload",
                 name="payload",
                 offset=CameraCfg.OffsetCfg(pos=(0.0, 0.0, 0.0))
             )
@@ -422,8 +441,15 @@ class EventCfg:
     reset_all = EventTerm(func=mdp.reset_scene_to_default, mode="reset")
     
     # Randomize fishrod position and orientation on each reset
-    randomize_fishrod = EventTerm(
-        func=lambda env, env_ids: _randomize_fishrod_pose_event(env, env_ids),
+    # DISABLED: Using hardcoded _FISHROD_BASE_POS instead
+    # randomize_fishrod = EventTerm(
+    #     func=lambda env, env_ids: _randomize_fishrod_pose_event(env, env_ids),
+    #     mode="reset"
+    # )
+    
+    # Log payload position after reset for debugging
+    log_payload_pos = EventTerm(
+        func=lambda env, env_ids: _log_payload_position_event(env, env_ids),
         mode="reset"
     )
     
@@ -441,7 +467,7 @@ def _randomize_fishrod_pose_event(env, env_ids):
         import yaml
         
         # Reload config for fresh randomization
-        with open(_FISHROD_CFG_PATH, "r") as f:
+        with open(_FISHROD_CFG_PATH, "r", encoding="utf-8") as f:
             cfg = yaml.safe_load(f) or {}
         
         # Check if randomization is enabled
@@ -465,7 +491,7 @@ def _randomize_fishrod_pose_event(env, env_ids):
         pos_tensor = torch.tensor(randomized_position, dtype=torch.float32, device=env.device)
         quat_tensor = torch.tensor(euler_to_quaternion(*base_orientation), dtype=torch.float32, device=env.device)
         
-        # Get fishrod asset (now AssetBase, not Articulation)
+        # Get fishrod asset
         fishrod = env.scene["fishrod"]
         
         # Ensure tensors have correct shape (num_envs, 3) and (num_envs, 4)
@@ -481,13 +507,18 @@ def _randomize_fishrod_pose_event(env, env_ids):
         if quat_tensor.shape[0] == 1 and num_envs > 1:
             quat_tensor = quat_tensor.repeat(num_envs, 1)
         
-        # Set position and orientation for all reset environments
-        for idx, env_id in enumerate(env_ids):
-            fishrod.data.root_pos_w[env_id] = pos_tensor[idx]
-            fishrod.data.root_quat_w[env_id] = quat_tensor[idx]
-        
-        # Write changes to simulation
-        fishrod.write_root_pose_to_sim(fishrod.data.root_pos_w, fishrod.data.root_quat_w, env_ids=env_ids)
+        # Try different APIs depending on asset type
+        if hasattr(fishrod, 'data') and hasattr(fishrod.data, 'root_pos_w'):
+            # Articulation/RigidObject API
+            for idx, env_id in enumerate(env_ids):
+                fishrod.data.root_pos_w[env_id] = pos_tensor[idx]
+                fishrod.data.root_quat_w[env_id] = quat_tensor[idx]
+            fishrod.write_root_pose_to_sim(fishrod.data.root_pos_w, fishrod.data.root_quat_w, env_ids=env_ids)
+        elif hasattr(fishrod, 'set_world_poses'):
+            # XFormPrim API
+            fishrod.set_world_poses(positions=pos_tensor, orientations=quat_tensor, indices=env_ids)
+        else:
+            print(f"[WARNING] Fishrod type {type(fishrod)} not supported for randomization")
         
     except Exception as e:
         print(f"[WARNING] Fishrod randomization failed: {e}")
@@ -514,15 +545,22 @@ def _clear_gpu_cache_event(env, env_ids):
 
 
 def _log_payload_position_event(env, env_ids):
-    """Print payload world position using articulation body data."""
+    """Print payload world position."""
     try:
+        # Log FishRod root position
         if "fishrod" in env.scene:
             fishrod = env.scene["fishrod"]
-            body_indices, _ = fishrod.find_bodies("Payload")
-            if len(body_indices) > 0:
-                idx = int(body_indices[0].item())
+            if hasattr(fishrod, 'data') and hasattr(fishrod.data, 'root_pos_w'):
                 for env_id in env_ids:
-                    px, py, pz = fishrod.data.body_pos_w[env_id, idx].tolist()
+                    rx, ry, rz = fishrod.data.root_pos_w[env_id].tolist()
+                    print(f"[FISHROD ROOT][env {int(env_id)}] world pos: x={rx:.4f}, y={ry:.4f}, z={rz:.4f}")
+        
+        # Log Payload position (now independent RigidObject)
+        if "payload" in env.scene:
+            payload = env.scene["payload"]
+            if hasattr(payload, 'data') and hasattr(payload.data, 'root_pos_w'):
+                for env_id in env_ids:
+                    px, py, pz = payload.data.root_pos_w[env_id].tolist()
                     print(f"[PAYLOAD][env {int(env_id)}] world pos: x={px:.4f}, y={py:.4f}, z={pz:.4f}")
             return
         # fallback to frame transformer if needed
@@ -616,7 +654,7 @@ class CurriculumCfg:
 @configclass
 class SO100LiftEnvCfg(ManagerBasedRLEnvCfg):
     """Configuration for the lifting environment."""
-    scene: ObjectTableSceneCfg = ObjectTableSceneCfg(num_envs=1, env_spacing=2.5)  # Tek ortam
+    scene: ObjectTableSceneCfg = ObjectTableSceneCfg(num_envs=4096, env_spacing=2.5)  # Parameterized from CLI
     observations: ObservationsCfg = ObservationsCfg()
     actions: ActionsCfg = ActionsCfg()
     commands: CommandsCfg = CommandsCfg()

@@ -3,38 +3,7 @@
 #
 # SPDX-License-Identifier: BSD-3-Clause
 
-"""
-Script to EVALUATE or TRAIN policies in Isaac Lab environment.
-
-MODES:
-1. EVALUATION MODE (default) - Test pre-trained policies
-2. TRAINING MODE (--train flag) - Train ACT policy with online RL (PPO)
-
-Supported policy types (evaluation):
-- Behavior Cloning (BC) checkpoints (.pt files)
-- LeRobot/SmolVLA pretrained models (model.safetensors + train_config.json)
-- Skrl PPO agents (agent.pkl)
-- Robomimic policies
-
-Usage examples:
-  
-  # TRAINING MODE - Train ACT policy with online RL
-  python Act_RL.py --train \
-      --task Template-So-100-FishRod-CubeLift-v0 \
-      --pretrained /path/to/lerobot/model/ \
-      --num_envs 4 \
-      --max_iterations 2000 \
-      --enable_cameras
-  
-  # EVALUATION MODE - Evaluate BC vision model
-  python Act_RL.py --checkpoint outputs/bc_best.pt --task Template-So-100-FishRod-CubeLift-v0 --num_rollouts 10
-  
-  # EVALUATION MODE - Evaluate Skrl PPO agent
-  python Act_RL.py --checkpoint logs/skrl/SO100_lift/checkpoints/latest/agent.pkl --task Template-So-100-CubeLift-v0
-  
-  # EVALUATION MODE - Evaluate with action mapping
-  python Act_RL.py --checkpoint outputs/bc_best.pt --action_map abs2norm --arm_scale 0.5
-"""
+"""Script to play and evaluate a trained Diffusion Policy for Isaac Lab environment."""
 
 """Launch Isaac Sim Simulator first."""
 
@@ -43,15 +12,13 @@ import argparse
 from isaaclab.app import AppLauncher
 
 # add argparse arguments
-parser = argparse.ArgumentParser(description="Evaluate or train policies for Isaac Lab environment.")
-parser.add_argument("--train", action="store_true", default=False, help="Enable training mode (uses train_Act_RL.py). If not set, runs evaluation only.")
+parser = argparse.ArgumentParser(description="Evaluate Diffusion Policy for Isaac Lab environment.")
 parser.add_argument(
     "--disable_fabric", action="store_true", default=False, help="Disable fabric and use USD I/O operations."
 )
 parser.add_argument("--task", type=str, default="Template-So-100-CubeLift-v0", help="Name of the task.")
-parser.add_argument("--checkpoint", type=str, default=None, help="Pytorch model checkpoint to load.")
+parser.add_argument("--checkpoint", type=str, default=None, help="Diffusion Policy checkpoint directory or .safetensors file.")
 parser.add_argument("--horizon", type=int, default=2000, help="Step horizon of each rollout.")
-parser.add_argument("--max_steps", type=int, default=None, help="Maximum number of steps per rollout (overrides --horizon if specified).")
 parser.add_argument("--num_rollouts", type=int, default=1, help="Number of rollouts.")
 parser.add_argument("--seed", type=int, default=101, help="Random seed.")
 parser.add_argument("--video", action="store_true", default=False, help="Record videos during evaluation.")
@@ -112,135 +79,17 @@ parser.add_argument("--state_offsets", type=str, default=None, help="Comma-separ
 parser.add_argument("--state_source", type=str, choices=["env","obs"], default="env", help="State source for model input: env (absolute joint_pos) or obs (policy joint_pos). Default: env.")
 # Action repeat: repeat the same action for N simulator steps (overrides control_hz if provided)
 parser.add_argument("--action_repeat", type=int, default=None, help="Repeat each action for N sim steps (e.g., 3 at 60 Hz ≈ 20 Hz control).")
-# Payload/Cube prim path for world position tracking and visualization
-parser.add_argument("--payload_prim", type=str, default="/World/FishRod/Rod/Payload", help="USD prim path of the payload/cube to track (e.g., /World/FishRod/Rod/Payload)")
-# Training mode arguments (used when --train is enabled)
-parser.add_argument("--num_envs", type=int, default=1, help="[TRAIN MODE] Number of parallel environments for training.")
-parser.add_argument("--max_iterations", type=int, default=2000, help="[TRAIN MODE] Maximum training iterations.")
-parser.add_argument("--save_interval", type=int, default=50, help="[TRAIN MODE] Save checkpoint every N iterations.")
-parser.add_argument("--checkpoint_dir", type=str, default="outputs/act_rl_checkpoints", help="[TRAIN MODE] Directory to save training checkpoints.")
-parser.add_argument("--pretrained", type=str, default=None, help="[TRAIN MODE] Load pretrained weights (e.g., from LeRobot) before training.")
-parser.add_argument("--resume", type=str, default=None, help="[TRAIN MODE] Resume from checkpoint path (e.g., outputs/act_rl_checkpoints/latest.pt).")
-parser.add_argument("--learning_rate", type=float, default=1e-4, help="[TRAIN MODE] Learning rate for training.")
-parser.add_argument("--chunk_size", type=int, default=10, help="[TRAIN MODE] Action chunk size for ACT policy.")
-parser.add_argument("--use_vision", action="store_true", default=False, help="[TRAIN MODE] Use vision input (cameras) for training.")
-parser.add_argument("--max_episode_steps", type=int, default=None, help="[TRAIN MODE] Maximum steps per episode before forced reset (None = no limit).")
+
+# Diffusion Policy specific parameters
+parser.add_argument("--diffusion_horizon", type=int, default=None, help="Override diffusion policy prediction horizon (default: from config).")
+parser.add_argument("--diffusion_n_action_steps", type=int, default=None, help="Number of action steps to execute before replanning (default: from config).")
+parser.add_argument("--diffusion_n_obs_steps", type=int, default=None, help="Number of observation steps for temporal conditioning (default: from config).")
+parser.add_argument("--normalization_stats", type=str, default=None, help="Path to normalization_stats.json for denormalizing actions from [-1,1] to original range.")
 
 # append AppLauncher cli args
 AppLauncher.add_app_launcher_args(parser)
 # parse the arguments
 args_cli = parser.parse_args()
-
-# If training mode is enabled, delegate to train_Act_RL.py
-if args_cli.train:
-    print("=" * 80)
-    print("TRAINING MODE ENABLED")
-    print("=" * 80)
-    print()
-    print("[INFO] Delegating to train_Act_RL.py for online RL training...")
-    print()
-    
-    # Build command to call train_Act_RL.py
-    import sys
-    import subprocess
-    
-    train_cmd = [
-        sys.executable,
-        "scripts/skrl/train_Act_RL.py",
-        "--task", args_cli.task,
-        "--num_envs", str(args_cli.num_envs),
-        "--max_iterations", str(args_cli.max_iterations),
-        "--save_interval", str(args_cli.save_interval),
-        "--checkpoint_dir", args_cli.checkpoint_dir,
-        "--learning_rate", str(args_cli.learning_rate),
-        "--chunk_size", str(args_cli.chunk_size),
-        "--seed", str(args_cli.seed),
-    ]
-    
-    # Add optional arguments
-    if args_cli.pretrained:
-        train_cmd.extend(["--pretrained", args_cli.pretrained])
-    
-    if args_cli.resume:
-        train_cmd.extend(["--resume", args_cli.resume])
-    elif args_cli.checkpoint:
-        train_cmd.extend(["--resume", args_cli.checkpoint])
-    
-    if args_cli.enable_cameras or args_cli.use_vision:
-        train_cmd.append("--use_vision")
-        if hasattr(args_cli, 'rgb_height'):
-            train_cmd.extend(["--image_size", str(args_cli.rgb_height)])
-            
-        # Forward dump arguments to training script so it can save model inputs
-        if getattr(args_cli, 'dump_model_input_dir', None):
-            train_cmd.append("--dump_input")
-            train_cmd.extend(["--dump_dir", args_cli.dump_model_input_dir])
-            # Optional: forward the exact step index if the user set it
-            if getattr(args_cli, 'dump_model_input_step', None) is not None:
-                train_cmd.extend(["--dump_step", str(args_cli.dump_model_input_step)])
-    
-    if args_cli.disable_fabric:
-        train_cmd.append("--disable_fabric")
-    
-    # For training, use --horizon parameter (NOT --max_steps which is for evaluation)
-    # --horizon is the PPO update frequency (e.g., 50 steps)
-    # --max_episode_steps is the episode length limit (e.g., 600 steps)
-    if args_cli.horizon:
-        train_cmd.extend(["--horizon", str(args_cli.horizon)])
-    
-    # Pass max_episode_steps if specified
-    if args_cli.max_episode_steps is not None:
-        train_cmd.extend(["--max_episode_steps", str(args_cli.max_episode_steps)])
-    
-    # Pass action mapping args to training script
-    if args_cli.action_map != "none":
-        train_cmd.extend(["--action_map", args_cli.action_map])
-    if args_cli.arm_scales:
-        train_cmd.extend(["--arm_scales", args_cli.arm_scales])
-    elif args_cli.arm_scale != 0.5:
-        train_cmd.extend(["--arm_scale", str(args_cli.arm_scale)])
-    if args_cli.arm_bias:
-        train_cmd.extend(["--arm_bias", args_cli.arm_bias])
-    if args_cli.axis_signs:
-        train_cmd.extend(["--axis_signs", args_cli.axis_signs])
-    if args_cli.min_cmd > 0:
-        train_cmd.extend(["--min_cmd", str(args_cli.min_cmd)])
-    if args_cli.pos_tol > 0:
-        train_cmd.extend(["--pos_tol", str(args_cli.pos_tol)])
-    if args_cli.curr_from_env:
-        train_cmd.append("--curr_from_env")
-    
-    # Pass camera_source to training script
-    if args_cli.camera_source:
-        train_cmd.extend(["--camera_source", args_cli.camera_source])
-
-    if args_cli.gripper_gain != 1.0:
-        train_cmd.extend(["--gripper_gain", str(args_cli.gripper_gain)])
-    if args_cli.anti_stall:
-        train_cmd.append("--anti_stall")
-        train_cmd.extend(["--anti_stall_window", str(args_cli.anti_stall_window)])
-        train_cmd.extend(["--anti_stall_thresh", str(args_cli.anti_stall_thresh)])
-        train_cmd.extend(["--anti_stall_boost", str(args_cli.anti_stall_boost)])
-
-    # Add device if specified
-    if hasattr(args_cli, 'device') and args_cli.device:
-        train_cmd.extend(["--device", args_cli.device])
-    
-    print("[CMD]", " ".join(train_cmd))
-    print()
-    print("=" * 80)
-    print()
-    
-    # Execute training script
-    try:
-        result = subprocess.run(train_cmd, check=True)
-        sys.exit(result.returncode)
-    except subprocess.CalledProcessError as e:
-        print(f"[ERROR] Training failed with exit code {e.returncode}")
-        sys.exit(e.returncode)
-    except KeyboardInterrupt:
-        print("\n[INFO] Training interrupted by user")
-        sys.exit(0)
 
 # always enable cameras to record video
 if args_cli.video:
@@ -282,38 +131,6 @@ import os
 import numpy as np
 import torch.nn as nn
 import cv2
-from typing import Optional, Tuple
-
-# USD / Omniverse imports for prim querying and lightweight debug visualization
-try:
-    import omni.usd
-    from pxr import Usd, UsdGeom, Gf, Sdf
-    HAVE_USD = True
-except Exception:
-    HAVE_USD = False
-try:
-    # PhysX schema to detect rigid bodies on prims
-    from pxr import PhysxSchema
-    HAVE_PHYSX_SCHEMA = True
-except Exception:
-    HAVE_PHYSX_SCHEMA = False
-
-# Optional physics/sim query backends for dynamic poses
-try:
-    from omni.physics.tensors import RigidPrimView
-    HAVE_TENSORS = True
-except Exception:
-    HAVE_TENSORS = False
-try:
-    import omni.isaac.dynamic_control as dynamic_control
-    HAVE_DC = True
-except Exception:
-    HAVE_DC = False
-try:
-    from omni.isaac.core.prims import XFormPrim
-    HAVE_XFORMPRIM = True
-except Exception:
-    HAVE_XFORMPRIM = False
 
 # SmolVLA support (model-only additions)
 try:
@@ -324,15 +141,16 @@ try:
 except Exception:
     HAVE_SMOLVLA = False
 
-# Skrl support for loading PPO agents
+# Diffusion Policy support
 try:
-    import skrl
-    from skrl.agents.torch.ppo import PPO, PPO_DEFAULT_CONFIG
-    from skrl.utils.model_instantiators import Shape, deterministic_model, gaussian_model
-    from skrl.utils import set_seed
-    HAVE_SKRL = True
-except Exception:
-    HAVE_SKRL = False
+    from lerobot.configs.train import TrainPipelineConfig as DiffusionTrainConfig
+    from lerobot.datasets.lerobot_dataset import LeRobotDatasetMetadata as DiffusionDatasetMeta
+    from lerobot.policies.factory import make_policy as make_diffusion_policy
+    HAVE_DIFFUSION = True
+    print("[INFO] Diffusion Policy support available")
+except Exception as e:
+    HAVE_DIFFUSION = False
+    print(f"[WARNING] Diffusion Policy not available: {e}")
 
 # Helper: resize with padding to 512x512 (letterbox) in RGB float[0,1]
 def resize_with_padding_rgb(img_hwc_float01: np.ndarray, target_hw=(512, 512)) -> np.ndarray:
@@ -444,245 +262,100 @@ class LightVisionCNN(nn.Module):
 
 def rollout(policy, env, horizon, device):
     """Run a single rollout with the policy."""
-    # === Prim utilities: world pose and marker ===
-    def _get_stage():
-        if not HAVE_USD:
-            return None
-        try:
-            return omni.usd.get_context().get_stage()
-        except Exception:
-            return None
-
-    def get_prim_world_position(prim_path: str) -> Optional[np.ndarray]:
-        """Return prim world translation (x,y,z) as numpy array or None if unavailable."""
-        if not HAVE_USD:
-            return None
-        try:
-            stage = _get_stage()
-            if stage is None:
-                return None
-            prim = stage.GetPrimAtPath(prim_path)
-            if not prim.IsValid():
-                return None
-            xformable = UsdGeom.Xformable(prim)
-            # Default time code works for live sim frames
-            m = xformable.ComputeLocalToWorldTransform(Usd.TimeCode.Default())
-            t = m.ExtractTranslation()
-            return np.array([float(t[0]), float(t[1]), float(t[2])], dtype=np.float32)
-        except Exception:
-            return None
-
-    # Dynamic pose query setup
-    _payload_view = None
-    _xform_prim = None
-    _payload_rb_paths = None  # cached list of rigid body prim paths under payload subtree
-
-    def _find_rigid_bodies_under(prim_path: str) -> list[str]:
-        """Traverse USD under prim_path to find PhysX rigid bodies. Returns list of prim paths."""
-        if not (HAVE_USD and HAVE_PHYSX_SCHEMA):
-            return []
-        try:
-            stage = _get_stage()
-            if stage is None:
-                return []
-            root = stage.GetPrimAtPath(prim_path)
-            if not root.IsValid():
-                return []
-            rb_paths = []
-            for prim in Usd.PrimRange(root):
-                try:
-                    if prim.IsValid() and prim.IsActive():
-                        if prim.HasAPI(PhysxSchema.PhysxRigidBodyAPI):
-                            rb_paths.append(prim.GetPath().pathString)
-                except Exception:
-                    continue
-            return rb_paths
-        except Exception:
-            return []
-
-    def get_payload_position_dynamic(prim_path: str) -> Optional[np.ndarray]:
-        """Query dynamic world position using dynamic_control / physics views / XForm; else USD/env fallbacks."""
-        nonlocal _payload_view, _xform_prim, _payload_rb_paths
-        # 0) Dynamic Control (PhysX) — most reliable for runtime motion
-        if HAVE_DC:
-            try:
-                dc = dynamic_control.acquire_dynamic_control_interface()
-                # Walk up ancestors until we find a rigid body
-                stage = _get_stage()
-                if stage is not None:
-                    path = Sdf.Path(prim_path)
-                    for _ in range(6):  # climb at most 6 levels
-                        path_str = path.pathString
-                        rb_handle = dc.get_rigid_body(path_str)
-                        if rb_handle:
-                            pose = dc.get_rigid_body_pose(rb_handle)
-                            # pose.p is a carb.Float3 or Gf.Vec3f-like
-                            pos = np.array([float(pose.p.x), float(pose.p.y), float(pose.p.z)], dtype=np.float32)
-                            print(f"[DEBUG] Dynamic Control found rigid body at {path_str}: x={pos[0]:.4f}, y={pos[1]:.4f}, z={pos[2]:.4f}")
-                            return pos
-                        # try articulation root as fallback
-                        art_handle = dc.get_articulation(path_str)
-                        if art_handle:
-                            # Get root link of articulation
-                            link_count = dc.get_articulation_dof_count(art_handle)
-                            # Fallback: articulation root world pose
-                            a_pose = dc.get_articulation_root_pose(art_handle)
-                            return np.array([float(a_pose.p.x), float(a_pose.p.y), float(a_pose.p.z)], dtype=np.float32)
-                        if path == path.GetParentPath():
-                            break
-                        path = path.GetParentPath()
-                # If not found on ancestors, search descendants for rigid bodies
-                if _payload_rb_paths is None:
-                    _payload_rb_paths = _find_rigid_bodies_under(prim_path)
-                for rb_path in (_payload_rb_paths or []):
-                    try:
-                        rb_handle = dc.get_rigid_body(rb_path)
-                        if rb_handle:
-                            pose = dc.get_rigid_body_pose(rb_handle)
-                            return np.array([float(pose.p.x), float(pose.p.y), float(pose.p.z)], dtype=np.float32)
-                    except Exception:
-                        continue
-            except Exception:
-                pass
-        # Try RigidPrimView (fast, physics-accurate)
-        if HAVE_TENSORS:
-            try:
-                if _payload_view is None:
-                    # If we discovered specific rigid body paths, use them; else use a wildcard expr
-                    if _payload_rb_paths is None:
-                        _payload_rb_paths = _find_rigid_bodies_under(prim_path)
-                    if _payload_rb_paths and isinstance(_payload_rb_paths, list):
-                        _payload_view = RigidPrimView(prim_paths_expr=_payload_rb_paths, reset_xform_properties=False)
-                    else:
-                        expr = prim_path if prim_path.endswith("*") else f"{prim_path}*"
-                        _payload_view = RigidPrimView(prim_paths_expr=expr, reset_xform_properties=False)
-                    _payload_view.initialize()
-                pos, ori = _payload_view.get_world_poses()
-                if pos is not None and len(pos) > 0:
-                    p = pos[0]
-                    pos_array = np.array([float(p[0]), float(p[1]), float(p[2])], dtype=np.float32)
-                    print(f"[DEBUG] RigidPrimView found position: x={pos_array[0]:.4f}, y={pos_array[1]:.4f}, z={pos_array[2]:.4f}")
-                    return pos_array
-            except Exception:
-                pass
-        # Try XFormPrim
-        if HAVE_XFORMPRIM:
-            try:
-                if _xform_prim is None:
-                    _xform_prim = XFormPrim(prim_path)
-                p, _ = _xform_prim.get_world_pose()
-                if p is not None and len(p) >= 3:
-                    pos_array = np.array([float(p[0]), float(p[1]), float(p[2])], dtype=np.float32)
-                    print(f"[DEBUG] XFormPrim found position: x={pos_array[0]:.4f}, y={pos_array[1]:.4f}, z={pos_array[2]:.4f}")
-                    return pos_array
-            except Exception:
-                pass
-        # USD fallback (may be static if physics not syncing to USD)
-        p = get_prim_world_position(prim_path)
-        if p is not None:
-            print(f"[DEBUG] USD fallback found position: x={p[0]:.4f}, y={p[1]:.4f}, z={p[2]:.4f}")
-            return p
-        # Env scene fallbacks
-        print(f"[DEBUG] Falling back to get_cube_position")
-        cube_pos = get_cube_position(env)
-        if cube_pos is not None:
-            print(f"[DEBUG] get_cube_position found: x={cube_pos[0]:.4f}, y={cube_pos[1]:.4f}, z={cube_pos[2]:.4f}")
-        return cube_pos
     
-    def get_cube_position(env):
-        """Get current payload position in world coordinates."""
+    def change_object_position_safely(env, new_pos):
+        """Safely change object position during runtime using Isaac Lab's reset mechanism."""
         try:
-            # Önce 'payload' olarak dene (öncelikli)
-            try:
-                payload_pos = env.unwrapped.scene["payload"].data.root_pos_w[0, :3].cpu().numpy()
-                print("[PAYLOAD] 'payload' bulundu ve konumu alındı")
-                return payload_pos
-            except KeyError:
-                pass
+            print(f"[INFO] Attempting to change object position to: {new_pos}")
             
-            # 'object' olarak dene (fallback)
-            try:
-                cube_pos = env.unwrapped.scene["object"].data.root_pos_w[0, :3].cpu().numpy()
-                print("[PAYLOAD] 'object' bulundu ve konumu alındı")
-                return cube_pos
-            except KeyError:
-                pass
+            # Method 1: Use Isaac Lab's event manager to reset scene safely
+            print("[INFO] Resetting scene to avoid tensor view invalidation...")
+            env.unwrapped.event_manager.reset()
             
-            # 'fishrod' olarak dene (fallback)
-            try:
-                fishrod_pos = env.unwrapped.scene["fishrod"].data.root_pos_w[0, :3].cpu().numpy()
-                print("[PAYLOAD] 'fishrod' bulundu ve konumu alındı")
-                return fishrod_pos
-            except KeyError:
-                pass
+            # Get the object from the scene after reset
+            object_asset = env.unwrapped.scene["object"]
             
-            # Her ikisi de bulunamazsa, mevcut scene'deki tüm nesneleri kontrol et
-            print(f"[PAYLOAD] Mevcut scene nesneleri: {list(env.unwrapped.scene.keys())}")
+            # Method 2: Use Isaac Lab's safe pose setting with proper tensor management
+            # Create pose tensor with proper format [x, y, z, qw, qx, qy, qz]
+            pose_tensor = torch.tensor([[new_pos[0], new_pos[1], new_pos[2], 1.0, 0.0, 0.0, 0.0]], 
+                                     device=object_asset.device, dtype=torch.float32)
             
-            # Diğer olası nesne isimlerini dene
-            possible_names = ['payload', 'rod', 'target', 'goal']
-            for name in possible_names:
-                try:
-                    if name in env.unwrapped.scene:
-                        pos = env.unwrapped.scene[name].data.root_pos_w[0, :3].cpu().numpy()
-                        print(f"[PAYLOAD] '{name}' bulundu ve konumu alındı")
-                        return pos
-                except (KeyError, AttributeError):
-                    continue
+            # Set pose using Isaac Lab's safe API
+            object_asset.write_root_pose_tensor(pose_tensor)
             
-            # Hiçbiri bulunamazsa None döndür
-            print(f"[PAYLOAD] Hiçbir nesne bulunamadı")
-            return None
+            # Wait for physics to stabilize
+            for _ in range(10):  # Multiple physics steps for stability
+                env.unwrapped.scene.update(dt=env.unwrapped.physics_dt)
+            
+            print(f"[INFO] Object position successfully changed to: {new_pos}")
+            return True
             
         except Exception as e:
-            print(f"[PAYLOAD] Konum alınamadı: {e}")
-            return None
+            print(f"[WARNING] Failed to change object position safely: {e}")
+            print("[INFO] Consider stopping simulation and restarting for position changes")
+            return False
     
-    def print_cube_status(env, step):
-        """Print detailed object status information."""
-        try:
-            object_pos = get_cube_position(env)
-            if object_pos is not None:
-                print(f"[PAYLOAD] Step {step}: Konum (x,y,z) = ({object_pos[0]:.4f}, {object_pos[1]:.4f}, {object_pos[2]:.4f})")
-                
-                # Nesnenin yüksekliği kontrolü
-                if object_pos[2] > 0.15:
-                    print(f"[PAYLOAD] Step {step}: ✅ Nesne yüksekte! (z={object_pos[2]:.4f}m)")
-                elif object_pos[2] > 0.1:
-                    print(f"[PAYLOAD] Step {step}: ⚠️ Nesne orta yükseklikte (z={object_pos[2]:.4f}m)")
-                else:
-                    print(f"[PAYLOAD] Step {step}: ❌ Nesne alçakta (z={object_pos[2]:.4f}m)")
-        except Exception as e:
-            print(f"[PAYLOAD] Step {step}: Durum bilgisi alınamadı: {e}")
+    # Add the function to the rollout scope for easy access
+    rollout.change_object_position = change_object_position_safely
+
     policy.start_episode()
     obs_dict, _ = env.reset()
     traj = dict(actions=[], obs=[], next_obs=[])
-    
-    # RL Training statistics tracking
-    episode_count = 0
-    total_reward_sum = 0.0
-    episode_rewards = []
-    episode_lengths = []
-    success_count = 0
-    
+    print(f"[DEBUG] Initial obs_dict keys: {list(obs_dict.keys())}")
+    print(f"[DEBUG] Policy obs type: {type(obs_dict['policy'])}")
     # prepare dump dir if enabled
     if args_cli.dump_rgb:
         os.makedirs(args_cli.dump_rgb_dir, exist_ok=True)
+    
+    # Detailed observation debugging
+    if isinstance(obs_dict['policy'], dict):
+        print(f"[DEBUG] Policy obs dict keys: {list(obs_dict['policy'].keys())}")
+        for key, value in obs_dict['policy'].items():
+            if hasattr(value, 'shape'):
+                print(f"[DEBUG] {key} shape: {value.shape}, dtype: {value.dtype}")
+            else:
+                print(f"[DEBUG] {key} type: {type(value)}, value: {value}")
+    elif hasattr(obs_dict['policy'], 'shape'):
+        print(f"[DEBUG] Policy obs shape: {obs_dict['policy'].shape}, dtype: {obs_dict['policy'].dtype}")
+    else:
+        print(f"[DEBUG] Policy obs: {obs_dict['policy']}")
 
     for i in range(horizon):
-        # FULL GPU memory reset every 400 steps (silently)
+        # Print GPU memory stats every 50 steps to track usage
+        if i % 50 == 0:
+            try:
+                if torch.cuda.is_available():
+                    allocated = torch.cuda.memory_allocated() / 1024**3
+                    reserved = torch.cuda.memory_reserved() / 1024**3
+                    print(f"[GPU-MEM] Step {i}: Allocated={allocated:.2f}GB, Reserved={reserved:.2f}GB")
+            except Exception:
+                pass
+        
+        # FULL GPU memory reset every 400 steps
         if i % 400 == 0 and i > 0:
             try:
                 import gc
+                print(f"[INFO] ===== Step {i}: FULL GPU memory reset START =====")
+                
+                # CRITICAL: Force Python GC BEFORE empty_cache to actually free tensors
                 gc.collect()
                 gc.collect()
                 gc.collect()
+                
+                # Now empty CUDA cache
                 torch.cuda.empty_cache()
                 torch.cuda.synchronize()
+                
+                # Final GC pass
                 gc.collect()
+                
                 torch.cuda.reset_peak_memory_stats()
-            except Exception:
-                pass
+                if torch.cuda.is_available():
+                    allocated = torch.cuda.memory_allocated() / 1024**3
+                    reserved = torch.cuda.memory_reserved() / 1024**3
+                    print(f"[INFO] Step {i}: GPU memory reset COMPLETE - Allocated={allocated:.2f}GB, Reserved={reserved:.2f}GB")
+            except Exception as e:
+                print(f"[WARNING] Failed to reset GPU memory: {e}")
         
         # Prepare observations - pass the full obs_dict to policy
         obs = obs_dict["policy"]
@@ -869,6 +542,8 @@ def rollout(policy, env, horizon, device):
                             mean_mag = float(np.mean(rollout._arm_hist))
                             if mean_mag < float(args_cli.anti_stall_thresh or 0.0):
                                 arm = np.clip(arm * float(args_cli.anti_stall_boost or 1.0), -1.0, 1.0)
+                                if i % 10 == 0:
+                                    print(f"[INFO] Anti-stall boost applied at step {i}: mean|arm|={mean_mag:.3f}")
                 except Exception:
                     pass
                 action_np[:, :5] = arm
@@ -887,12 +562,15 @@ def rollout(policy, env, horizon, device):
                         except Exception:
                             rollout._default_gripper = 0.0
                         
-                        # Gripper scale (from joint limits: 0.0 to 2.22 rad, so scale ~1.1)
-                        gripper_scale = 1.1
+                        # Gripper scale (computed from dataset range to fit [-1, 1])
+                        gripper_scale = 6.3
                         
                         # Normalize: (absolute - default) / scale
                         gripper_normalized = (gripper_raw - rollout._default_gripper) / gripper_scale
                         action_np[:, 5] = gripper_normalized
+                        
+                        if i == 0:
+                            print(f"[INFO] Gripper abs2default: default={rollout._default_gripper:.3f}, scale={gripper_scale}")
                     
                     # Apply gripper gain
                     gripper_gain = float(getattr(args_cli, 'gripper_gain', 1.0) or 1.0)
@@ -901,99 +579,89 @@ def rollout(policy, env, horizon, device):
                     
                     # Clip to environment range
                     action_np[:, 5] = np.clip(action_np[:, 5], -1.0, 1.0)
-        except Exception:
+                    
+                    if args_cli.debug_gripper and i % 20 == 0:
+                        print(f"[GRIPPER] Step {i}: raw={gripper_raw[0]:.3f} → normalized={action_np[0, 5]:.4f}")
+        except Exception as e:
+            if args_cli.debug_gripper:
+                print(f"[GRIPPER_DEBUG] Step {i}: Action mapping exception: {e}")
             pass
+        
+        # Print action values every 10 steps to track changes
+        if i % 10 == 0:
+            flat = action_np.flatten()
+            action_magnitude = np.linalg.norm(flat)
+            gripper_action = flat[5] if len(flat) > 5 else 0.0
+            arm_magnitude = np.linalg.norm(flat[:5])
+            print(f"[DEBUG] Step {i}: Total: {action_magnitude:.4f}, Arm: {arm_magnitude:.4f}, Gripper: {gripper_action:.4f}")
+            print(f"[DEBUG] Step {i}: Action: {flat}")
+            # Also log current joint observations (env and obs)
+            try:
+                # From env (absolute radians)
+                jp_env = None
+                try:
+                    jp_t = env.unwrapped.scene["robot"].data.joint_pos
+                    jp_env = np.array(jp_t[:1, :6].cpu().numpy(), dtype=np.float32)
+                except Exception:
+                    pass
+                # From observation dict if present
+                jp_obs = None
+                if isinstance(obs, dict) and 'joint_pos' in obs:
+                    if isinstance(obs['joint_pos'], torch.Tensor):
+                        jp_obs = obs['joint_pos'].detach().cpu().numpy()
+                    else:
+                        jp_obs = np.array(obs['joint_pos'], dtype=np.float32)
+                # Print both if available
+                if jp_env is not None:
+                    print(f"[DEBUG] Step {i}: joint_pos (env abs) = {jp_env}")
+                if jp_obs is not None:
+                    print(f"[DEBUG] Step {i}: joint_pos (obs) = {jp_obs}")
+            except Exception as e:
+                print(f"[DEBUG] Step {i}: failed to log joint observations: {e}")
+            if i == 0 and args_cli.action_map in ['abs2norm','abs2default','delta2norm']:
+                try:
+                    dj = env.unwrapped.scene["robot"].data.default_joint_pos
+                    dj_np = np.array(dj[:1, :5].cpu().numpy(), dtype=np.float32)
+                    jp = env.unwrapped.scene["robot"].data.joint_pos
+                    jp_np = np.array(jp[:1, :5].cpu().numpy(), dtype=np.float32)
+                    abs_pred = action_np[:, :5] if args_cli.action_map in ['abs2default','abs2norm'] else None
+                    print(f"[DEBUG] Step 0: default_joints(rad)={dj_np}, curr_abs(rad)={jp_np}")
+                    if abs_pred is not None:
+                        print(f"[DEBUG] Step 0: abs_target(pred)={abs_pred}")
+                except Exception as e:
+                    print(f"[DEBUG] Step 0: debug fetch failed: {e}")
 
-    # Convert to torch tensor on the environment/device and step
+        # Convert to torch tensor on the environment/device and step
         action_t = torch.from_numpy(action_np).to(device).float()
         obs_prev = obs
         
         # Try to step, if OOM occurs, clear cache and retry
         try:
-            obs_dict, reward, terminated, truncated, _ = env.step(action_t)
+            obs_dict, _, terminated, truncated, _ = env.step(action_t)
         except torch.cuda.OutOfMemoryError as e:
+            print(f"[WARNING] CUDA OOM at step {i}, clearing cache and retrying...")
             torch.cuda.empty_cache()
             import gc
             gc.collect()
             # Retry the step
             try:
-                obs_dict, reward, terminated, truncated, _ = env.step(action_t)
+                obs_dict, _, terminated, truncated, _ = env.step(action_t)
             except torch.cuda.OutOfMemoryError:
+                print(f"[ERROR] CUDA OOM persists after cache clear at step {i}, stopping rollout")
                 return False, traj
         obs = obs_dict["policy"]
-
-        # Calculate payload-jaw distance and reward
-        reward_value = 0.0
+        # Track state change (joint_pos delta)
         try:
-            # Get reward value first - prefer reward_buf from Isaac Lab
-            try:
-                # Isaac Lab stores total reward in reward_buf after step()
-                if hasattr(env.unwrapped, 'reward_buf'):
-                    reward_value = float(env.unwrapped.reward_buf[0].item())
-                elif isinstance(reward, torch.Tensor):
-                    reward_value = float(reward[0].item())
-                elif isinstance(reward, (list, tuple, np.ndarray)):
-                    reward_value = float(reward[0])
-                elif isinstance(reward, (int, float, np.number)):
-                    reward_value = float(reward)
-            except Exception:
-                reward_value = 0.0
-            
-            # Get payload position
-            payload_pos = None
-            if hasattr(env.unwrapped, 'scene'):
-                try:
-                    payload_obj = env.unwrapped.scene['payload']
-                    payload_pos = payload_obj.data.root_pos_w[0].cpu().numpy()
-                except KeyError:
-                    pass
-            
-            # Get Fixed_Jaw position
-            jaw_pos = None
-            if hasattr(env.unwrapped, 'scene'):
-                try:
-                    robot = env.unwrapped.scene['robot']
-                    # Find Fixed_Jaw body index
-                    fixed_jaw_idx = None
-                    for idx, body_name in enumerate(robot.body_names):
-                        if "Fixed_Jaw" in body_name or body_name == "Fixed_Jaw":
-                            fixed_jaw_idx = idx
-                            break
-                    if fixed_jaw_idx is not None:
-                        jaw_pos = robot.data.body_state_w[0, fixed_jaw_idx, :3].cpu().numpy()
-                except KeyError:
-                    pass
-            
-            # Calculate distance and print
-            if payload_pos is not None and jaw_pos is not None:
-                distance = np.linalg.norm(payload_pos - jaw_pos)
-                print(f"Step {i}: Distance={distance:.4f}m, Reward={reward_value:.6f}")
-            else:
-                if i % 100 == 0:  # Debug every 100 steps
-                    print(f"Step {i}: payload_pos={payload_pos is not None}, jaw_pos={jaw_pos is not None}, Reward={reward_value:.6f}")
-                    if hasattr(env.unwrapped, 'scene'):
-                        try:
-                            print(f"  Scene keys: {list(env.unwrapped.scene.keys())}")
-                            if 'robot' in env.unwrapped.scene:
-                                robot = env.unwrapped.scene['robot']
-                                print(f"  Robot body_names: {robot.body_names}")
-                        except:
-                            pass
-        except Exception as e:
-            # Still try to get reward even on error
-            try:
-                if hasattr(env.unwrapped, 'reward_buf'):
-                    reward_value = float(env.unwrapped.reward_buf[0].item())
-            except:
-                reward_value = 0.0
-            
-            if i % 100 == 0:  # Print error every 100 steps to avoid spam
-                print(f"Step {i}: Error calculating distance/reward: {e}")
-                import traceback
-                traceback.print_exc()
-        finally:
-            # Track episode statistics (always)
-            total_reward_sum += reward_value
+            jp_prev = obs_prev['joint_pos'] if isinstance(obs_prev, dict) else None
+            jp_curr = obs['joint_pos'] if isinstance(obs, dict) else None
+            if jp_prev is not None and jp_curr is not None:
+                if isinstance(jp_prev, torch.Tensor): jp_prev = jp_prev.cpu().numpy()
+                if isinstance(jp_curr, torch.Tensor): jp_curr = jp_curr.cpu().numpy()
+                d = float(np.linalg.norm(jp_curr - jp_prev))
+                if i % 10 == 0:
+                    print(f"[DEBUG] Step {i}: joint_pos delta norm: {d:.6f}")
+        except Exception:
+            pass
 
         # Record trajectory
         traj["actions"].append(action_t.detach().cpu().tolist())
@@ -1011,40 +679,9 @@ def rollout(policy, env, horizon, device):
             if "jaw_camera_rgb" in obs_dict["policy"]:
                 del obs_dict["policy"]["jaw_camera_rgb"]
 
-        # Print training statistics every 50 steps
-        if i % 50 == 0 and i > 0:
-            avg_reward = total_reward_sum / i if i > 0 else 0.0
-            print(f"\n[TRAINING] Step {i} | Avg Reward: {avg_reward:.6f} | Total Reward: {total_reward_sum:.6f}")
-        
         if terminated or truncated:
-            # Episode ended - record statistics
-            episode_count += 1
-            episode_length = i + 1
-            episode_total_reward = total_reward_sum
-            episode_rewards.append(episode_total_reward)
-            episode_lengths.append(episode_length)
-            
-            if terminated:
-                success_count += 1
-            
-            # Calculate statistics
-            avg_episode_reward = np.mean(episode_rewards) if episode_rewards else 0.0
-            avg_episode_length = np.mean(episode_lengths) if episode_lengths else 0.0
-            success_rate = (success_count / episode_count * 100) if episode_count > 0 else 0.0
-            
-            # Print episode summary
-            status = "SUCCESS" if terminated else "TRUNCATED"
-            print(f"\n[EPISODE {episode_count}] {status} at Step {i}")
-            print(f"  Episode Length: {episode_length}")
-            print(f"  Episode Reward: {episode_total_reward:.6f}")
-            print(f"  Avg Episode Reward: {avg_episode_reward:.6f}")
-            print(f"  Avg Episode Length: {avg_episode_length:.1f}")
-            print(f"  Success Rate: {success_rate:.1f}% ({success_count}/{episode_count})")
-            print("-" * 60)
-            
-            # Reset episode tracking
-            total_reward_sum = 0.0
-            
+            status = "terminated" if terminated else "truncated"
+            print(f"[DEBUG] Episode {status} at step {i}")
             if args_cli.on_done == "reset":
                 obs_dict, _ = env.reset()
                 obs = obs_dict["policy"]
@@ -1052,13 +689,7 @@ def rollout(policy, env, horizon, device):
             else:
                 return bool(terminated), traj
 
-    # Horizon reached - print final statistics
-    if episode_count > 0:
-        print(f"\n[FINAL STATS] Total Episodes: {episode_count}")
-        print(f"  Avg Episode Reward: {np.mean(episode_rewards):.6f}")
-        print(f"  Avg Episode Length: {np.mean(episode_lengths):.1f}")
-        print(f"  Success Rate: {(success_count / episode_count * 100):.1f}% ({success_count}/{episode_count})")
-    
+    print(f"[DEBUG] Episode reached horizon limit {horizon}")
     return False, traj
 
 
@@ -1100,6 +731,7 @@ def main():
         try:
             if HAVE_SMOLVLA:
                 import os
+                import json
                 ckpt_path = args_cli.checkpoint
                 pretrained_dir = None
                 if os.path.isdir(ckpt_path):
@@ -1110,6 +742,19 @@ def main():
                     if ckpt_path.endswith(".safetensors") and os.path.exists(os.path.join(parent, "train_config.json")):
                         pretrained_dir = parent
                 if pretrained_dir:
+                    # Check config.json to determine policy type
+                    config_path = os.path.join(pretrained_dir, "config.json")
+                    policy_type = None
+                    if os.path.exists(config_path):
+                        with open(config_path, 'r') as f:
+                            cfg = json.load(f)
+                            policy_type = cfg.get("type", None)
+                    
+                    # If it's a diffusion policy, skip SmolVLA and let Diffusion handler take over
+                    if policy_type == "diffusion":
+                        print(f"[INFO] Detected Diffusion Policy in pretrained directory: {pretrained_dir}")
+                        raise ValueError("Diffusion policy detected, skip to DiffusionPolicyAdapter")
+                    
                     print(f"[INFO] Detected SmolVLA pretrained directory: {pretrained_dir}")
                     # Load training config and dataset stats
                     train_cfg = TrainPipelineConfig.from_pretrained(pretrained_dir)
@@ -1527,201 +1172,516 @@ def main():
         except Exception as e:
             print(f"[INFO] SmolVLA detection/load failed (will try other formats): {e}")
 
-        # Try Skrl PPO checkpoint loading
-        if policy is None and HAVE_SKRL:
+        # Try Diffusion Policy format
+        if policy is None and HAVE_DIFFUSION:
             try:
                 import os
-                import yaml
-                import pickle
                 ckpt_path = args_cli.checkpoint
+                pretrained_dir = None
+                # Check if this is a Diffusion Policy directory
+                if os.path.isdir(ckpt_path):
+                    # Look for diffusion policy specific files
+                    has_config = os.path.exists(os.path.join(ckpt_path, "config.yaml")) or os.path.exists(os.path.join(ckpt_path, "train_config.json"))
+                    has_model = os.path.exists(os.path.join(ckpt_path, "model.safetensors")) or os.path.exists(os.path.join(ckpt_path, "diffusion_pytorch_model.safetensors"))
+                    if has_config and has_model:
+                        pretrained_dir = ckpt_path
+                else:
+                    parent = os.path.dirname(ckpt_path)
+                    if ckpt_path.endswith(".safetensors"):
+                        has_config = os.path.exists(os.path.join(parent, "config.yaml")) or os.path.exists(os.path.join(parent, "train_config.json"))
+                        if has_config:
+                            pretrained_dir = parent
                 
-                # Check if checkpoint path is a skrl agent.pkl file or directory containing it
-                agent_pkl_path = None
-                if os.path.isfile(ckpt_path) and ckpt_path.endswith('.pkl'):
-                    agent_pkl_path = ckpt_path
-                    ckpt_dir = os.path.dirname(ckpt_path)
-                elif os.path.isdir(ckpt_path):
-                    # Look for agent.pkl in directory
-                    if os.path.exists(os.path.join(ckpt_path, 'agent.pkl')):
-                        agent_pkl_path = os.path.join(ckpt_path, 'agent.pkl')
-                        ckpt_dir = ckpt_path
-                    # Or in checkpoints subdirectory
-                    elif os.path.exists(os.path.join(ckpt_path, 'checkpoints')):
-                        # Find latest checkpoint
-                        checkpoints_dir = os.path.join(ckpt_path, 'checkpoints')
-                        checkpoint_dirs = [d for d in os.listdir(checkpoints_dir) if os.path.isdir(os.path.join(checkpoints_dir, d))]
-                        if checkpoint_dirs:
-                            latest = sorted(checkpoint_dirs)[-1]
-                            agent_pkl_path = os.path.join(checkpoints_dir, latest, 'agent.pkl')
-                            if os.path.exists(agent_pkl_path):
-                                ckpt_dir = os.path.dirname(agent_pkl_path)
-                            else:
-                                agent_pkl_path = None
-                
-                if agent_pkl_path and os.path.exists(agent_pkl_path):
-                    print(f"[INFO] Detected Skrl checkpoint: {agent_pkl_path}")
+                if pretrained_dir:
+                    print(f"[INFO] Detected Diffusion Policy pretrained directory: {pretrained_dir}")
                     
-                    # Try to load config from same directory or parent
-                    config_path = None
-                    possible_config_paths = [
-                        os.path.join(ckpt_dir, 'agent.yaml'),
-                        os.path.join(ckpt_dir, 'skrl_ppo_cfg.yaml'),
-                        os.path.join(os.path.dirname(ckpt_dir), 'agent.yaml'),
-                        os.path.join(os.path.dirname(ckpt_dir), 'skrl_ppo_cfg.yaml'),
-                    ]
+                    # Load training config
+                    train_cfg = DiffusionTrainConfig.from_pretrained(pretrained_dir)
+                    train_cfg.policy.pretrained_path = pretrained_dir
+                    train_cfg.policy.device = device.type if hasattr(device, 'type') else str(device)
                     
-                    # Also try to find config in task directory
+                    # Try multiple methods to load the policy
+                    diffusion_policy = None
+                    
+                    # Method 1: Try loading with dataset stats
                     try:
-                        from SO_100.tasks import manager_based
-                        task_module_path = manager_based.__file__
-                        task_dir = os.path.dirname(task_module_path)
-                        fishrod_cfg = os.path.join(task_dir, 'so_100_fishrod', 'agents', 'skrl_ppo_cfg.yaml')
-                        if os.path.exists(fishrod_cfg):
-                            possible_config_paths.append(fishrod_cfg)
-                    except:
-                        pass
+                        ds_meta = DiffusionDatasetMeta(train_cfg.dataset.repo_id, root=args_cli.dataset_root, revision=train_cfg.dataset.revision)
+                        # Verify stats have required keys
+                        required_keys = list(train_cfg.policy.input_features.keys()) + list(train_cfg.policy.output_features.keys())
+                        missing_keys = [k for k in required_keys if k not in ds_meta.stats]
+                        if missing_keys:
+                            raise KeyError(f"Dataset stats missing keys: {missing_keys}")
+                        diffusion_policy = make_diffusion_policy(cfg=train_cfg.policy, ds_meta=ds_meta)
+                        print("[INFO] Loaded Diffusion Policy with dataset stats")
+                    except Exception as e:
+                        print(f"[WARNING] Method 1 (dataset stats) failed: {e}")
                     
-                    for cfg_path in possible_config_paths:
-                        if os.path.exists(cfg_path):
-                            config_path = cfg_path
-                            break
-                    
-                    if config_path:
-                        print(f"[INFO] Loading Skrl config from: {config_path}")
-                        with open(config_path, 'r') as f:
-                            cfg_dict = yaml.safe_load(f)
-                    else:
-                        print("[WARNING] Skrl config not found, using defaults from skrl_ppo_cfg.yaml")
-                        # Try to load from task directory
+                    # Method 2: Load directly using DiffusionPolicy.from_pretrained with HuggingFace
+                    if diffusion_policy is None:
                         try:
-                            from SO_100.tasks.manager_based.so_100_fishrod.agents import skrl_ppo_cfg
-                            import importlib.resources
-                            if hasattr(importlib.resources, 'files'):
-                                with importlib.resources.files('SO_100.tasks.manager_based.so_100_fishrod.agents').joinpath('skrl_ppo_cfg.yaml').open() as f:
-                                    cfg_dict = yaml.safe_load(f)
-                            else:
-                                # Fallback
-                                cfg_path = os.path.join(os.path.dirname(__file__), '..', '..', '..', 'source', 'SO_100', 'SO_100', 'tasks', 'manager_based', 'so_100_fishrod', 'agents', 'skrl_ppo_cfg.yaml')
-                                if os.path.exists(cfg_path):
-                                    with open(cfg_path, 'r') as f:
-                                        cfg_dict = yaml.safe_load(f)
-                                else:
-                                    raise FileNotFoundError
+                            from lerobot.policies.diffusion.modeling_diffusion import DiffusionPolicy
+                            # Load from HuggingFace - this will fetch stats from the cloud
+                            diffusion_policy = DiffusionPolicy.from_pretrained(pretrained_dir)
+                            diffusion_policy.to(device)
+                            diffusion_policy.eval()
+                            print("[INFO] Loaded Diffusion Policy directly from pretrained directory")
                         except Exception as e:
-                            print(f"[WARNING] Could not load default config, using minimal config: {e}")
-                            # Minimal config
-                            cfg_dict = {
-                                'models': {
-                                    'separate': False,
-                                    'policy': {
-                                        'class': 'GaussianMixin',
-                                        'network': [{'name': 'net', 'input': 'STATES', 'layers': [256, 128, 64], 'activations': 'elu'}],
-                                        'output': 'ACTIONS'
-                                    },
-                                    'value': {
-                                        'class': 'DeterministicMixin',
-                                        'network': [{'name': 'net', 'input': 'STATES', 'layers': [256, 128, 64], 'activations': 'elu'}],
-                                        'output': 'ONE'
-                                    }
-                                },
-                                'agent': PPO_DEFAULT_CONFIG.copy()
-                            }
+                            print(f"[WARNING] Method 2 (direct from_pretrained) failed: {e}")
                     
-                    # Get observation and action space from environment
-                    obs_space = env.observation_space['policy']
-                    action_space = env.action_space
+                    # Method 3: Load model weights manually and create policy without stats normalization
+                    if diffusion_policy is None:
+                        try:
+                            from safetensors.torch import load_file
+                            from lerobot.policies.diffusion.modeling_diffusion import DiffusionPolicy, DiffusionConfig
+                            import json
+                            
+                            # Load config
+                            config_path = os.path.join(pretrained_dir, "config.json")
+                            with open(config_path, 'r') as f:
+                                config_dict = json.load(f)
+                            
+                            # Create config object
+                            config = DiffusionConfig(**config_dict)
+                            config.pretrained_path = pretrained_dir
+                            
+                            # Create dummy stats with zeros (model has internal normalization from training)
+                            dummy_stats = {}
+                            for key, feat in config.input_features.items():
+                                shape = feat['shape'] if isinstance(feat, dict) else feat.shape
+                                dummy_stats[key] = {
+                                    'mean': np.zeros(shape, dtype=np.float32),
+                                    'std': np.ones(shape, dtype=np.float32),
+                                    'min': np.zeros(shape, dtype=np.float32),
+                                    'max': np.ones(shape, dtype=np.float32),
+                                }
+                            for key, feat in config.output_features.items():
+                                shape = feat['shape'] if isinstance(feat, dict) else feat.shape
+                                dummy_stats[key] = {
+                                    'mean': np.zeros(shape, dtype=np.float32),
+                                    'std': np.ones(shape, dtype=np.float32),
+                                    'min': -np.ones(shape, dtype=np.float32),
+                                    'max': np.ones(shape, dtype=np.float32),
+                                }
+                            
+                            # Create policy with dummy stats
+                            diffusion_policy = DiffusionPolicy(config, dataset_stats=dummy_stats)
+                            
+                            # Load weights from safetensors
+                            weights_path = os.path.join(pretrained_dir, "model.safetensors")
+                            state_dict = load_file(weights_path)
+                            diffusion_policy.load_state_dict(state_dict, strict=False)
+                            diffusion_policy.to(device)
+                            diffusion_policy.eval()
+                            print("[INFO] Loaded Diffusion Policy with manual weight loading (Method 3)")
+                        except Exception as e:
+                            print(f"[WARNING] Method 3 (manual loading) failed: {e}")
+                            import traceback
+                            traceback.print_exc()
                     
-                    # Determine shapes
-                    if hasattr(obs_space, 'shape'):
-                        obs_shape = obs_space.shape
-                    elif isinstance(obs_space, dict) or hasattr(obs_space, 'spaces'):
-                        # Get state dimension (assuming joint_pos exists)
-                        spaces = obs_space.spaces if hasattr(obs_space, 'spaces') else obs_space
-                        if 'joint_pos' in spaces:
-                            obs_shape = spaces['joint_pos'].shape
-                        else:
-                            obs_shape = spaces[list(spaces.keys())[0]].shape
-                    else:
-                        obs_shape = (6,)  # Default
+                    if diffusion_policy is None:
+                        raise RuntimeError("Failed to load Diffusion Policy with all methods")
                     
-                    if hasattr(action_space, 'shape'):
-                        action_shape = action_space.shape
-                    else:
-                        action_shape = (6,)  # Default
-                    
-                    # Create models using skrl model instantiators
-                    models = cfg_dict.get('models', {})
-                    policy_cfg = models.get('policy', {})
-                    value_cfg = models.get('value', {})
-                    
-                    # Create models with Shape objects
-                    obs_shape_obj = Shape(obs_shape)
-                    action_shape_obj = Shape(action_shape)
-                    
-                    policy_model = gaussian_model(policy_cfg, obs_shape_obj, action_shape_obj)
-                    value_model = deterministic_model(value_cfg, obs_shape_obj, Shape((1,)))
-                    
-                    # Create agent config
-                    agent_cfg = PPO_DEFAULT_CONFIG.copy()
-                    agent_cfg.update(cfg_dict.get('agent', {}))
-                    
-                    # Create agent
-                    agent = PPO(
-                        models={'policy': policy_model, 'value': value_model},
-                        memory=None,  # Not needed for inference
-                        cfg=agent_cfg,
-                        observation_space=obs_space,
-                        action_space=action_space,
-                        device=device
-                    )
-                    
-                    # Load checkpoint
-                    agent.load(agent_pkl_path)
-                    agent.set_running_mode("eval")
-                    
-                    # Create adapter
-                    class SkrlAdapter:
-                        def __init__(self, agent):
-                            self.agent = agent
+                    class DiffusionPolicyAdapter:
+                        """Adapter for Diffusion Policy inference in Isaac Lab."""
+                        def __init__(self, policy_module, device_str: str = "cuda", resize_hw=(128, 128), 
+                                     use_imagenet_stats: bool = False, env=None, n_action_steps: int = 16,
+                                     horizon: int = 16, n_obs_steps: int = 2, 
+                                     normalization_stats_path: str = None, dataset_root: str = None):
+                            self.policy = policy_module
+                            self.device = device_str
                             self.step_count = 0
+                            self.resize_target = resize_hw
+                            self.use_imagenet = bool(use_imagenet_stats)
+                            self.env = env
+                            self.n_action_steps = int(n_action_steps)
+                            self.horizon = int(horizon)
+                            self.n_obs_steps = int(n_obs_steps)
+                            
+                            # Observation history buffer for temporal conditioning
+                            self.obs_history = []
+                            
+                            # Action queue for executing predicted actions
+                            self.action_queue = []
+                            
+                            # NOTE: Do NOT apply ImageNet normalization here!
+                            # LeRobot's normalize_inputs() handles normalization using model's stored stats
+                            self.img_mean = None
+                            self.img_std = None
+                            
+                            # Load normalization stats for denormalization (if using normalized dataset)
+                            self.denorm_action_min = None
+                            self.denorm_action_max = None
+                            
+                            stats_path = normalization_stats_path
+                            if stats_path is None and dataset_root:
+                                auto_path = os.path.join(dataset_root, "normalization_stats.json")
+                                if os.path.exists(auto_path):
+                                    stats_path = auto_path
+                            
+                            # Also load state normalization stats
+                            self.norm_state_min = None
+                            self.norm_state_max = None
+                            
+                            if stats_path and os.path.exists(stats_path):
+                                import json
+                                with open(stats_path, 'r') as f:
+                                    norm_stats = json.load(f)
+                                if 'action' in norm_stats:
+                                    self.denorm_action_min = np.array(norm_stats['action']['min'], dtype=np.float32)
+                                    self.denorm_action_max = np.array(norm_stats['action']['max'], dtype=np.float32)
+                                    print(f"[INFO] Loaded normalization stats from {stats_path}")
+                                    print(f"[INFO] Will DENORMALIZE actions from [-1,1] to original range")
+                                    print(f"[INFO]   Action min: {self.denorm_action_min}")
+                                    print(f"[INFO]   Action max: {self.denorm_action_max}")
+                                if 'observation.state' in norm_stats:
+                                    self.norm_state_min = np.array(norm_stats['observation.state']['min'], dtype=np.float32)
+                                    self.norm_state_max = np.array(norm_stats['observation.state']['max'], dtype=np.float32)
+                                    print(f"[INFO] Will NORMALIZE states from radians to [-1,1]")
+                                    print(f"[INFO]   State min: {self.norm_state_min}")
+                                    print(f"[INFO]   State max: {self.norm_state_max}")
+                            else:
+                                print(f"[INFO] No normalization_stats.json found - assuming actions are already in radians")
+                        
                         def start_episode(self):
                             self.step_count = 0
-                        def __call__(self, obs):
-                            # Convert obs to tensor if needed
-                            if isinstance(obs, dict):
-                                # Skrl expects state vector - extract joint_pos
-                                if 'joint_pos' in obs:
-                                    state = obs['joint_pos']
-                                else:
-                                    # Try to get first observation
-                                    state = list(obs.values())[0]
-                            else:
-                                state = obs
+                            self.obs_history = []
+                            self.action_queue = []
+                            if hasattr(self.policy, 'reset'):
+                                self.policy.reset()
+                        
+                        def _preprocess_image(self, cam):
+                            """Preprocess camera image for diffusion policy."""
+                            import torch
+                            import cv2
                             
-                            if isinstance(state, torch.Tensor):
-                                state_t = state.to(device)
-                            else:
-                                state_t = torch.from_numpy(np.array(state)).float().to(device)
-                            
-                            # Add batch dimension if needed
-                            if state_t.ndim == 1:
-                                state_t = state_t.unsqueeze(0)
-                            
-                            # Get action from agent
-                            with torch.no_grad():
-                                action = self.agent.act(state_t, training=False)[0]
+                            if cam is None:
+                                th, tw = self.resize_target
+                                return np.zeros((1, 3, th, tw), dtype=np.float32)
                             
                             # Convert to numpy
-                            if isinstance(action, torch.Tensor):
-                                action = action.cpu().numpy()
+                            if isinstance(cam, torch.Tensor):
+                                cam_np = cam.detach().cpu().numpy()
+                            else:
+                                cam_np = np.array(cam)
                             
+                            # Remove batch dim if present
+                            if cam_np.ndim == 4:
+                                cam_np = cam_np[0]
+                            
+                            # If CHW, convert to HWC
+                            if cam_np.ndim == 3 and cam_np.shape[0] in (1, 3, 4) and cam_np.shape[-1] not in (1, 3, 4):
+                                cam_np = np.transpose(cam_np, (1, 2, 0))
+                            
+                            # Drop alpha if present
+                            if cam_np.ndim == 3 and cam_np.shape[-1] == 4:
+                                cam_np = cam_np[..., :3]
+                            
+                            # Grayscale to RGB
+                            if cam_np.ndim == 2:
+                                cam_np = np.stack([cam_np] * 3, axis=-1)
+                            if cam_np.ndim == 3 and cam_np.shape[-1] == 1:
+                                cam_np = np.repeat(cam_np, 3, axis=-1)
+                            
+                            # Ensure valid shape
+                            th, tw = self.resize_target
+                            if cam_np.ndim != 3 or cam_np.shape[-1] != 3:
+                                cam_np = np.zeros((int(th), int(tw), 3), dtype=np.float32)
+                            
+                            # Convert to float [0,1]
+                            if cam_np.dtype == np.uint8:
+                                cam_np = cam_np.astype(np.float32) / 255.0
+                            else:
+                                cam_np = np.clip(cam_np.astype(np.float32), 0.0, 1.0)
+                            
+                            # BGR to RGB if needed
+                            if getattr(args_cli, 'camera_format', 'rgb') == 'bgr':
+                                cam_np = cam_np[:, :, ::-1]
+                            
+                            # Resize if needed
+                            h, w = cam_np.shape[:2]
+                            if (h != th) or (w != tw):
+                                cam_np = cv2.resize(cam_np, (tw, th), interpolation=cv2.INTER_LINEAR)
+                            
+                            # Apply normalization
+                            if self.img_mean is not None and self.img_std is not None:
+                                cam_np = (cam_np - self.img_mean[None, None, :]) / (self.img_std[None, None, :] + 1e-8)
+                            
+                            # Convert to CHW and add batch dim
+                            cam_chw = np.transpose(cam_np, (2, 0, 1))
+                            return cam_chw.reshape(1, *cam_chw.shape)
+                        
+                        def __call__(self, obs):
+                            import torch
+                            
+                            # Extract cameras from env
+                            cam = None
+                            jaw_cam = None
+                            try:
+                                cam_t = self.env.unwrapped.scene["camera"].data.output["rgb"]
+                                if isinstance(cam_t, torch.Tensor):
+                                    cam = cam_t.detach().cpu().numpy()
+                                else:
+                                    cam = np.array(cam_t)
+                            except Exception:
+                                cam = obs.get('camera_rgb', None) if isinstance(obs, dict) else None
+                            
+                            try:
+                                jaw_cam_t = self.env.unwrapped.scene["jaw_camera"].data.output["rgb"]
+                                if isinstance(jaw_cam_t, torch.Tensor):
+                                    jaw_cam = jaw_cam_t.detach().cpu().numpy()
+                                else:
+                                    jaw_cam = np.array(jaw_cam_t)
+                            except Exception:
+                                jaw_cam = obs.get('jaw_camera_rgb', None) if isinstance(obs, dict) else None
+                            
+                            # Get state
+                            state_np = None
+                            src = getattr(args_cli, 'state_source', 'env')
+                            if src == 'env':
+                                try:
+                                    jp = self.env.unwrapped.scene["robot"].data.joint_pos
+                                    jp_np = jp[:1, :6].detach().cpu().numpy() if isinstance(jp, torch.Tensor) else np.array(jp)[:1, :6]
+                                    state_np = jp_np.astype(np.float32)
+                                except Exception:
+                                    src = 'obs'
+                            if src == 'obs':
+                                if isinstance(obs, dict):
+                                    st = obs.get('joint_pos', obs)
+                                else:
+                                    st = obs
+                                if isinstance(st, torch.Tensor):
+                                    state_np = st.detach().cpu().numpy().reshape(1, -1).astype(np.float32)
+                                else:
+                                    state_np = np.array(st, dtype=np.float32).reshape(1, -1)
+                            
+                            # Preprocess images
+                            main_img = self._preprocess_image(cam)
+                            jaw_img = self._preprocess_image(jaw_cam) if jaw_cam is not None else None
+                            
+                            # Build current observation
+                            current_obs = {
+                                "state": state_np,
+                                "main_cam": main_img,
+                                "jaw_cam": jaw_img
+                            }
+                            
+                            # Add to observation history
+                            self.obs_history.append(current_obs)
+                            if len(self.obs_history) > self.n_obs_steps:
+                                self.obs_history.pop(0)
+                            
+                            # If we have actions queued, use them
+                            if len(self.action_queue) > 0:
+                                action = self.action_queue.pop(0)
+                                self.step_count += 1
+                                return action
+                            
+                            # Need to predict new actions - pad observation history if needed
+                            while len(self.obs_history) < self.n_obs_steps:
+                                self.obs_history.insert(0, self.obs_history[0])
+                            
+                            # Build batch directly for generate_actions (bypass queue mechanism)
+                            # generate_actions expects:
+                            # - observation.state: [B, n_obs_steps, state_dim]
+                            # - observation.images: [B, n_obs_steps, num_cameras, C, H, W]
+                            
+                            # Stack observations from history
+                            states = []
+                            main_imgs = []
+                            jaw_imgs = []
+                            
+                            for obs in self.obs_history[-self.n_obs_steps:]:
+                                states.append(obs["state"])  # [1, 6]
+                                main_imgs.append(obs["main_cam"])  # [1, 3, H, W]
+                                if obs["jaw_cam"] is not None:
+                                    jaw_imgs.append(obs["jaw_cam"])
+                            
+                            # State: [B, n_obs_steps, state_dim] = [1, 1, 6]
+                            state_np = np.stack(states, axis=1)  # [1, n_obs_steps, 6]
+                            
+                            # NORMALIZE STATE: Convert from radians to [-1, 1]
+                            if self.norm_state_min is not None and self.norm_state_max is not None:
+                                # state_np shape: [1, n_obs_steps, 6]
+                                state_range = self.norm_state_max - self.norm_state_min
+                                # formula: state_norm = (state - min) / (max - min) * 2 - 1
+                                state_np = (state_np - self.norm_state_min) / (state_range + 1e-8) * 2.0 - 1.0
+                                state_np = np.clip(state_np, -1.0, 1.0)  # Ensure within bounds
+                                if self.step_count % 10 == 0:
+                                    print(f"[DEBUG] Step {self.step_count}: Normalized state: {np.round(state_np[0, -1], 3)}")
+                            
+                            state_tensor = torch.from_numpy(state_np).to(self.device).float()
+                            
+                            if self.step_count == 0:
+                                print(f"[INFO] State value being sent to model (normalized): {state_np[0, 0, :]}")
+                            
+                            # Images: keep separate for normalization, then stack
+                            # Each image needs sequence dim: [B, n_obs_steps, C, H, W]
+                            main_np = np.stack(main_imgs, axis=1)  # [1, n_obs_steps, 3, H, W]
+                            main_tensor = torch.from_numpy(main_np).to(self.device).float()
+                            
+                            has_jaw = len(jaw_imgs) > 0
+                            if has_jaw:
+                                jaw_np = np.stack(jaw_imgs, axis=1)  # [1, n_obs_steps, 3, H, W]
+                                jaw_tensor = torch.from_numpy(jaw_np).to(self.device).float()
+                            
+                            # Build batch with SEPARATE image keys for proper normalization
+                            batch = {
+                                "observation.state": state_tensor,
+                                "observation.images.front": main_tensor,
+                            }
+                            if has_jaw:
+                                batch["observation.images.jaw"] = jaw_tensor
+                            
+                            if self.step_count == 0:
+                                print(f"[INFO] Diffusion batch shapes (before normalize):")
+                                for k, v in batch.items():
+                                    print(f"  {k}: {list(v.shape)}")
+                            
+                            # Normalize inputs using policy's normalize_inputs
+                            # This normalizes observation.images.front, observation.images.jaw, observation.state
+                            # BUT skip state if we already normalized with our min/max
+                            with torch.no_grad():
+                                if self.norm_state_min is not None:
+                                    # We already normalized state, only let LeRobot normalize images
+                                    state_backup = batch["observation.state"].clone()
+                                    batch = self.policy.normalize_inputs(batch)
+                                    batch["observation.state"] = state_backup
+                                else:
+                                    batch = self.policy.normalize_inputs(batch)
+                                
+                                # Now stack images like LeRobot does in select_action
+                                imgs = []
+                                for key in ["observation.images.front", "observation.images.jaw"]:
+                                    if key in batch:
+                                        img = batch[key]
+                                        # Ensure sequence dimension: [B, n_obs_steps, C, H, W]
+                                        if img.dim() == 4:  # [B, C, H, W] -> [B, 1, C, H, W]
+                                            img = img.unsqueeze(1)
+                                        imgs.append(img)
+                                
+                                # Stack cameras: [B, n_obs_steps, num_cameras, C, H, W]
+                                batch["observation.images"] = torch.stack(imgs, dim=2)
+                                
+                                if self.step_count == 0:
+                                    print(f"[INFO] After normalization and stacking:")
+                                    print(f"  observation.images: {list(batch['observation.images'].shape)}")
+                                    print(f"  observation.state: {list(batch['observation.state'].shape)}")
+                                
+                                # Run inference
+                                actions = self.policy.diffusion.generate_actions(batch)
+                                # Unnormalize actions - SKIP if we have our own denormalization stats
+                                # (to avoid double denormalization when using normalized dataset)
+                                if self.denorm_action_min is None:
+                                    # No custom denorm stats - use LeRobot's unnormalize
+                                    actions = self.policy.unnormalize_outputs({"action": actions})["action"]
+                                else:
+                                    # We have custom denorm stats - skip LeRobot's unnormalize
+                                    # Our denormalization will handle [-1,1] -> radians conversion
+                                    if self.step_count == 0:
+                                        print(f"[INFO] Skipping LeRobot unnormalize_outputs (using custom denormalization)")
+                            
+                            # Actions is typically (1, horizon, action_dim) or (horizon, action_dim)
+                            if isinstance(actions, torch.Tensor):
+                                actions_np = actions.detach().cpu().numpy()
+                            else:
+                                actions_np = np.array(actions)
+                            
+                            # Reshape to (horizon, action_dim)
+                            if actions_np.ndim == 3:
+                                actions_np = actions_np[0]  # Remove batch dim
+                            if actions_np.ndim == 1:
+                                actions_np = actions_np.reshape(1, -1)
+                            
+                            # DENORMALIZE: Convert from [-1, 1] to original radians range
+                            if self.denorm_action_min is not None and self.denorm_action_max is not None:
+                                # Debug: show raw normalized actions (every 10 steps)
+                                if self.step_count % 10 == 0:
+                                    print(f"[DEBUG] Step {self.step_count}: Raw actions (should be -1 to 1): {np.round(actions_np[0], 3)}")
+                                
+                                # actions are in [-1, 1], convert to original range
+                                # formula: action_real = (action_norm + 1) / 2 * (max - min) + min
+                                action_range = self.denorm_action_max - self.denorm_action_min
+                                actions_np = (actions_np + 1.0) / 2.0 * action_range + self.denorm_action_min
+                                
+                                if self.step_count % 10 == 0:
+                                    print(f"[DEBUG] Step {self.step_count}: Denormalized (radians): {np.round(actions_np[0], 3)}")
+                                
+                                if self.step_count == 0:
+                                    print(f"[DEBUG] Per-joint ranges: min={self.denorm_action_min}, max={self.denorm_action_max}")
+                            
+                            # Queue up actions for execution
+                            for i in range(min(self.n_action_steps, len(actions_np))):
+                                act = torch.from_numpy(actions_np[i:i+1]).to(self.device).float()
+                                # Apply action gain
+                                gain = float(getattr(args_cli, 'action_gain', 1.0) or 1.0)
+                                if gain != 1.0:
+                                    act[:, :5] = act[:, :5] * gain
+                                self.action_queue.append(act)
+                            
+                            if self.step_count == 0:
+                                print(f"[INFO] Diffusion Policy: Predicted {len(actions_np)} actions, executing {self.n_action_steps} steps")
+                            
+                            # Return first action
+                            action = self.action_queue.pop(0)
                             self.step_count += 1
                             return action
                     
-                    policy = SkrlAdapter(agent)
-                    print("[INFO] Loaded Skrl PPO agent successfully")
+                    # Get config values
+                    try:
+                        import json
+                        cfg_json = os.path.join(pretrained_dir, "train_config.json")
+                        with open(cfg_json, 'r') as f:
+                            cfgd = json.load(f)
+                        # Try different possible image key names
+                        input_features = cfgd.get('policy', {}).get('input_features', {})
+                        shape = None
+                        for img_key in ['observation.images.front', 'observation.images.rgb', 'observation.images']:
+                            if img_key in input_features:
+                                shape = input_features[img_key].get('shape', [3, 512, 512])
+                                break
+                        if shape is None:
+                            shape = [3, 512, 512]  # Default to 512x512
+                        h_cfg = int(shape[1]) if len(shape) >= 2 else 512
+                        w_cfg = int(shape[2]) if len(shape) >= 3 else 512
+                        resize_hw = (h_cfg, w_cfg)
+                        use_imnet = bool(cfgd.get('dataset', {}).get('use_imagenet_stats', False))
+                        horizon = int(cfgd.get('policy', {}).get('horizon', 16))
+                        n_action_steps = int(cfgd.get('policy', {}).get('n_action_steps', 8))
+                        n_obs_steps = int(cfgd.get('policy', {}).get('n_obs_steps', 1))
+                        print(f"[INFO] Config: resize_hw={resize_hw}, use_imagenet={use_imnet}, horizon={horizon}, n_action_steps={n_action_steps}, n_obs_steps={n_obs_steps}")
+                    except Exception as e:
+                        print(f"[WARNING] Failed to read config: {e}")
+                        resize_hw = (512, 512)
+                        use_imnet = False
+                        horizon = 16
+                        n_action_steps = 8
+                        n_obs_steps = 1
+                    
+                    # CLI overrides
+                    if getattr(args_cli, 'use_imagenet_stats', False):
+                        use_imnet = True
+                    if getattr(args_cli, 'diffusion_horizon', None):
+                        horizon = int(args_cli.diffusion_horizon)
+                    if getattr(args_cli, 'diffusion_n_action_steps', None):
+                        n_action_steps = int(args_cli.diffusion_n_action_steps)
+                    if getattr(args_cli, 'diffusion_n_obs_steps', None):
+                        n_obs_steps = int(args_cli.diffusion_n_obs_steps)
+                    
+                    policy = DiffusionPolicyAdapter(
+                        diffusion_policy,
+                        device_str=(device.type if hasattr(device, 'type') else str(device)),
+                        resize_hw=resize_hw,
+                        use_imagenet_stats=use_imnet,
+                        env=env,
+                        n_action_steps=n_action_steps,
+                        horizon=horizon,
+                        n_obs_steps=n_obs_steps,
+                        normalization_stats_path=getattr(args_cli, 'normalization_stats', None),
+                        dataset_root=getattr(args_cli, 'dataset_root', None)
+                    )
+                    print(f"[INFO] Loaded Diffusion Policy successfully (horizon={horizon}, n_action_steps={n_action_steps}, n_obs_steps={n_obs_steps})")
             except Exception as e:
-                print(f"[INFO] Skrl checkpoint loading failed (will try other formats): {e}")
+                print(f"[INFO] Diffusion Policy detection/load failed (will try other formats): {e}")
                 import traceback
                 traceback.print_exc()
 
@@ -1765,156 +1725,156 @@ def main():
                             except Exception as e:
                                 print(f"[WARNING] Failed to read meta file: {e}")
  
-                        # Fallback: infer from checkpoint keys when meta is missing
-                        # Infer architecture from checkpoint keys (takes precedence over meta)
-                        inferred_arch = None
-                        if 'model_state_dict' in checkpoint:
+                    # Fallback: infer from checkpoint keys when meta is missing
+                    # Infer architecture from checkpoint keys (takes precedence over meta)
+                    inferred_arch = None
+                    if 'model_state_dict' in checkpoint:
+                        try:
+                            ks = list(checkpoint['model_state_dict'].keys())
+                            if any(k.startswith('cnn.') for k in ks):
+                                inferred_arch = 'vision'
+                            elif any(k.startswith('input_layer.') for k in ks):
+                                inferred_arch = 'mlp'
+                        except Exception:
+                            inferred_arch = None
+                    if inferred_arch:
+                        print(f"[INFO] Inferred architecture from checkpoint: {inferred_arch}")
+                        meta_arch = inferred_arch
+
+                    # If meta says 'vision', or keys indicate CNN, use vision
+                    self.is_vision = (meta_arch == 'vision')
+                    # Attempt to read training meta for image size and normalization
+                    self.image_size = 128
+                    meta_center = 0.5
+                    meta_scale = 1.0
+                    meta_width_mul = 1.0
+                    meta_dropout = 0.05
+                    try:
+                        if os.path.exists('outputs/bc_training_meta.txt'):
+                            with open('outputs/bc_training_meta.txt', 'r') as mf:
+                                for line in mf:
+                                    if line.startswith('image_size='):
+                                        self.image_size = int(line.strip().split('=')[1])
+                                    elif line.startswith('img_center='):
+                                        meta_center = float(line.strip().split('=')[1])
+                                    elif line.startswith('img_scale='):
+                                        meta_scale = float(line.strip().split('=')[1])
+                                    elif line.startswith('cnn_width_mul='):
+                                        try:
+                                            meta_width_mul = float(line.strip().split('=')[1])
+                                        except Exception:
+                                            pass
+                                    elif line.startswith('dropout='):
+                                        try:
+                                            meta_dropout = float(line.strip().split('=')[1])
+                                        except Exception:
+                                            pass
+                                    elif line.startswith('img_mean='):
+                                        try:
+                                            parts = line.strip().split('=')[1].split(',')
+                                            self.img_mean = np.array([float(x) for x in parts], dtype=np.float32)
+                                        except Exception:
+                                            self.img_mean = None
+                                    elif line.startswith('img_std='):
+                                        try:
+                                            parts = line.strip().split('=')[1].split(',')
+                                            self.img_std = np.array([float(x) for x in parts], dtype=np.float32)
+                                        except Exception:
+                                            self.img_std = None
+                    except Exception:
+                        pass
+                    # Override from meta
+                    self.img_center = meta_center
+                    self.img_scale = meta_scale
+                    self.width_mul = meta_width_mul
+                    self.dropout = meta_dropout
+
+                    # If per-channel stats files exist, prefer them
+                    try:
+                        p_mean = 'outputs/img_mean.npy'
+                        p_std = 'outputs/img_std.npy'
+                        if os.path.exists(p_mean) and os.path.exists(p_std):
+                            self.img_mean = np.load(p_mean)
+                            self.img_std = np.load(p_std)
+                    except Exception:
+                        pass
+
+                    # Derive input/output dims from scalers if available
+                    inferred_state_dim = 6
+                    inferred_action_dim = 6
+                    try:
+                        if self.scaler is not None and hasattr(self.scaler, 'n_features_in_'):
+                            inferred_state_dim = int(self.scaler.n_features_in_)
+                    except Exception:
+                        pass
+                    try:
+                        if self.act_scaler is not None and hasattr(self.act_scaler, 'n_features_in_'):
+                            inferred_action_dim = int(self.act_scaler.n_features_in_)
+                    except Exception:
+                        pass
+
+                    if self.is_vision:
+                        # Use 6 channels for dual camera input (main + jaw)
+                        self.net = LightVisionCNN(img_channels=6, state_dim=inferred_state_dim, action_dim=inferred_action_dim, width_mul=getattr(self, 'width_mul', 1.0), dropout=getattr(self, 'dropout', 0.05)).to(device)
+                    else:
+                        self.net = AdvancedBCNetwork(input_dim=inferred_state_dim, output_dim=inferred_action_dim, hidden_dims=[256, 256, 128]).to(device)
+                    print(f"[INFO] Policy arch: {'vision' if self.is_vision else 'mlp'}; image_size={self.image_size}; img_channels={6 if self.is_vision else 'N/A'}; state_dim={inferred_state_dim}, action_dim={inferred_action_dim}")
+                    
+                    # Load model weights
+                    if 'model_state_dict' in checkpoint:
+                        state_dict = checkpoint['model_state_dict']
+                        try:
+                            # Remove 'network.' prefix if present
+                            new_state = {}
+                            for k, v in state_dict.items():
+                                new_state[k[8:]] = v if k.startswith('network.') else v
+                            # Prefer strict load; if fails, try non-strict
                             try:
-                                ks = list(checkpoint['model_state_dict'].keys())
-                                if any(k.startswith('cnn.') for k in ks):
-                                    inferred_arch = 'vision'
-                                elif any(k.startswith('input_layer.') for k in ks):
-                                    inferred_arch = 'mlp'
-                            except Exception:
-                                inferred_arch = None
-                        if inferred_arch:
-                            print(f"[INFO] Inferred architecture from checkpoint: {inferred_arch}")
-                            meta_arch = inferred_arch
-
-                        # If meta says 'vision', or keys indicate CNN, use vision
-                        self.is_vision = (meta_arch == 'vision')
-                        # Attempt to read training meta for image size and normalization
-                        self.image_size = 128
-                        meta_center = 0.5
-                        meta_scale = 1.0
-                        meta_width_mul = 1.0
-                        meta_dropout = 0.05
-                        try:
-                            if os.path.exists('outputs/bc_training_meta.txt'):
-                                with open('outputs/bc_training_meta.txt', 'r') as mf:
-                                    for line in mf:
-                                        if line.startswith('image_size='):
-                                            self.image_size = int(line.strip().split('=')[1])
-                                        elif line.startswith('img_center='):
-                                            meta_center = float(line.strip().split('=')[1])
-                                        elif line.startswith('img_scale='):
-                                            meta_scale = float(line.strip().split('=')[1])
-                                        elif line.startswith('cnn_width_mul='):
-                                            try:
-                                                meta_width_mul = float(line.strip().split('=')[1])
-                                            except Exception:
-                                                pass
-                                        elif line.startswith('dropout='):
-                                            try:
-                                                meta_dropout = float(line.strip().split('=')[1])
-                                            except Exception:
-                                                pass
-                                        elif line.startswith('img_mean='):
-                                            try:
-                                                parts = line.strip().split('=')[1].split(',')
-                                                self.img_mean = np.array([float(x) for x in parts], dtype=np.float32)
-                                            except Exception:
-                                                self.img_mean = None
-                                        elif line.startswith('img_std='):
-                                            try:
-                                                parts = line.strip().split('=')[1].split(',')
-                                                self.img_std = np.array([float(x) for x in parts], dtype=np.float32)
-                                            except Exception:
-                                                self.img_std = None
-                        except Exception:
-                            pass
-                        # Override from meta
-                        self.img_center = meta_center
-                        self.img_scale = meta_scale
-                        self.width_mul = meta_width_mul
-                        self.dropout = meta_dropout
-
-                        # If per-channel stats files exist, prefer them
-                        try:
-                            p_mean = 'outputs/img_mean.npy'
-                            p_std = 'outputs/img_std.npy'
-                            if os.path.exists(p_mean) and os.path.exists(p_std):
-                                self.img_mean = np.load(p_mean)
-                                self.img_std = np.load(p_std)
-                        except Exception:
-                            pass
-
-                        # Derive input/output dims from scalers if available
-                        inferred_state_dim = 6
-                        inferred_action_dim = 6
-                        try:
-                            if self.scaler is not None and hasattr(self.scaler, 'n_features_in_'):
-                                inferred_state_dim = int(self.scaler.n_features_in_)
-                        except Exception:
-                            pass
-                        try:
-                            if self.act_scaler is not None and hasattr(self.act_scaler, 'n_features_in_'):
-                                inferred_action_dim = int(self.act_scaler.n_features_in_)
-                        except Exception:
-                            pass
-
-                        if self.is_vision:
-                            # Use 6 channels for dual camera input (main + jaw)
-                            self.net = LightVisionCNN(img_channels=6, state_dim=inferred_state_dim, action_dim=inferred_action_dim, width_mul=getattr(self, 'width_mul', 1.0), dropout=getattr(self, 'dropout', 0.05)).to(device)
-                        else:
-                            self.net = AdvancedBCNetwork(input_dim=inferred_state_dim, output_dim=inferred_action_dim, hidden_dims=[256, 256, 128]).to(device)
-                        print(f"[INFO] Policy arch: {'vision' if self.is_vision else 'mlp'}; image_size={self.image_size}; img_channels={6 if self.is_vision else 'N/A'}; state_dim={inferred_state_dim}, action_dim={inferred_action_dim}")
-                        
-                        # Load model weights
-                        if 'model_state_dict' in checkpoint:
-                            state_dict = checkpoint['model_state_dict']
+                                self.net.load_state_dict(state_dict, strict=True)
+                                print("[INFO] Loaded model weights successfully (strict)")
+                            except Exception as e_strict:
+                                print(f"[WARNING] Strict load failed: {e_strict}; trying non-strict")
+                                self.net.load_state_dict(state_dict, strict=False)
+                                print("[INFO] Loaded model weights successfully (non-strict)")
+                        except Exception as e:
+                            print(f"[WARNING] Failed to load state dict strictly: {e}, trying non-strict mapping")
                             try:
-                                # Remove 'network.' prefix if present
-                                new_state = {}
-                                for k, v in state_dict.items():
-                                    new_state[k[8:]] = v if k.startswith('network.') else v
-                                # Prefer strict load; if fails, try non-strict
-                                try:
-                                    self.net.load_state_dict(state_dict, strict=True)
-                                    print("[INFO] Loaded model weights successfully (strict)")
-                                except Exception as e_strict:
-                                    print(f"[WARNING] Strict load failed: {e_strict}; trying non-strict")
-                                    self.net.load_state_dict(state_dict, strict=False)
-                                    print("[INFO] Loaded model weights successfully (non-strict)")
-                            except Exception as e:
-                                print(f"[WARNING] Failed to load state dict strictly: {e}, trying non-strict mapping")
-                                try:
-                                    self.net.load_state_dict(new_state, strict=False)
-                                    print("[INFO] Loaded model weights with adjusted keys")
-                                except Exception as e2:
-                                    print(f"[ERROR] Could not load weights: {e2}")
-                        else:
-                            print("[WARNING] No model_state_dict found in checkpoint")
-                        
-                        # Load scaler if available
-                        self.scaler = None
-                        self.act_scaler = None
+                                self.net.load_state_dict(new_state, strict=False)
+                                print("[INFO] Loaded model weights with adjusted keys")
+                            except Exception as e2:
+                                print(f"[ERROR] Could not load weights: {e2}")
+                    else:
+                        print("[WARNING] No model_state_dict found in checkpoint")
+                    
+                    # Load scaler if available
+                    self.scaler = None
+                    self.act_scaler = None
+                    try:
+                        import pickle
+                        # Try advanced scaler first
+                        with open('outputs/obs_scaler_optimized.pkl', 'rb') as f:
+                            self.scaler = pickle.load(f)
+                        print("[INFO] Loaded optimized observation scaler")
+                    except:
                         try:
-                            import pickle
-                            # Try advanced scaler first
-                            with open('outputs/obs_scaler_optimized.pkl', 'rb') as f:
+                            # Fallback to simple scaler
+                            with open('outputs/obs_scaler.pkl', 'rb') as f:
                                 self.scaler = pickle.load(f)
-                            print("[INFO] Loaded optimized observation scaler")
+                            print("[INFO] Loaded simple observation scaler")
                         except:
-                            try:
-                                # Fallback to simple scaler
-                                with open('outputs/obs_scaler.pkl', 'rb') as f:
-                                    self.scaler = pickle.load(f)
-                                print("[INFO] Loaded simple observation scaler")
-                            except:
-                                print("[WARNING] No scaler found, using raw observations")
+                            print("[WARNING] No scaler found, using raw observations")
 
-                        # Load action scaler
-                        try:
-                            import pickle
-                            with open('outputs/act_scaler_optimized.pkl', 'rb') as f:
-                                self.act_scaler = pickle.load(f)
-                            print("[INFO] Loaded optimized action scaler")
-                        except:
-                            print("[WARNING] No action scaler found; using raw action outputs")
-                        
-                        # Set all layers to eval mode
-                        self.net.eval()
+                    # Load action scaler
+                    try:
+                        import pickle
+                        with open('outputs/act_scaler_optimized.pkl', 'rb') as f:
+                            self.act_scaler = pickle.load(f)
+                        print("[INFO] Loaded optimized action scaler")
+                    except:
+                        print("[WARNING] No action scaler found; using raw action outputs")
+                    
+                    # Set all layers to eval mode
+                    self.net.eval()
                 
                 def __call__(self, obs):
                     # Extract joint positions and optional images (main camera + jaw camera)
@@ -2211,17 +2171,10 @@ def main():
         return
 
     # Run policy
-    # Use max_steps if specified, otherwise use horizon
-    horizon = args_cli.max_steps if args_cli.max_steps is not None else args_cli.horizon
-    if args_cli.max_steps is not None:
-        print(f"[INFO] Using --max_steps={args_cli.max_steps}")
-    else:
-        print(f"[INFO] Using --horizon={args_cli.horizon}")
-    
     results = []
     for trial in range(args_cli.num_rollouts):
         print(f"[INFO] Starting trial {trial}")
-        terminated, traj = rollout(policy, env, horizon, device)
+        terminated, traj = rollout(policy, env, args_cli.horizon, device)
         results.append(terminated)
         print(f"[INFO] Trial {trial}: {terminated}\n")
 
